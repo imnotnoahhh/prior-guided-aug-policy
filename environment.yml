@@ -1,0 +1,38 @@
+# Prior-Guided Augmentation Policy Search
+# 先验引导增强策略搜索 - Conda 环境配置
+# 使用命令: conda env create -f environment.yml
+
+name: pga
+channels:
+  - conda-forge
+
+dependencies:
+  # ===== Python 版本 =====
+  - python=3.14.2
+
+  # ===== 图像处理 (禁止使用 OpenCV!) =====
+  - pillow=12.0.0  # PIL 图像库，torchvision 后端依赖
+
+  # ===== 科学计算与数据处理 =====
+  - numpy=2.3.5        # 数值计算
+  - pandas=2.3.3       # 数据分析，输出 CSV 日志
+  - scikit-learn=1.8.0 # StratifiedKFold 分层采样
+  - scipy=1.16.3       # Sobol 序列采样 (阶段 A)
+
+  # ===== 可视化 (论文图表) =====
+  - matplotlib=3.10.8  # 绑图：Heatmaps, Efficiency Plot
+  - seaborn=0.13.2     # 统计可视化
+
+  # ===== 实验追踪与日志 =====
+  - tensorboard=2.20.0  # 训练监控，Loss/Acc 曲线
+  - tqdm=4.67.1         # 进度条
+
+  # ===== 配置管理 =====
+  - pyyaml=6.0.3  # YAML 配置文件解析
+
+  # ===== Pip 依赖 =====
+  - pip=25.3
+  - pip:
+      # PyTorch 深度学习框架 (macOS 自动使用 MPS 后端)
+      - torch==2.9.1
+      - torchvision==0.24.1
