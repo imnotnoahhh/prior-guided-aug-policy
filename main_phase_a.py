@@ -84,7 +84,7 @@ def train_single_config(
     epochs: int,
     device: torch.device,
     fold_idx: int = 0,
-    batch_size: int = 128,
+    batch_size: int = 64,
     num_workers: int = 4,
     early_stop_patience: int = 5,
     seed: int = 42,
@@ -97,7 +97,7 @@ def train_single_config(
         epochs: Number of training epochs.
         device: Device to train on.
         fold_idx: Which fold to use (default 0 for search).
-        batch_size: Batch size (fixed at 128 per No-NAS).
+        batch_size: Batch size (64 for low-data regime).
         num_workers: Number of data loading workers.
         early_stop_patience: Epochs to wait before early stopping.
         seed: Random seed for reproducibility.
@@ -170,12 +170,12 @@ def train_single_config(
     # Loss function
     criterion = nn.CrossEntropyLoss()
     
-    # Optimizer and scheduler (fixed hyperparameters per No-NAS)
+    # Optimizer and scheduler (optimized for low-data regime)
     optimizer, scheduler = get_optimizer_and_scheduler(
         model=model,
         total_epochs=epochs,
-        lr=0.1,
-        weight_decay=5e-4,
+        lr=0.05,
+        weight_decay=1e-3,
         momentum=0.9,
     )
     

@@ -116,11 +116,11 @@
 | :--- | :--- | :--- |
 | **Model** | ResNet-18 | 标准 Backbones |
 | **Optimizer** | SGD | |
-| **Learning Rate** | 0.1 | |
-| **Weight Decay** | 5e-4 | |
+| **Learning Rate** | 0.05 | 小数据平衡优化 (原0.1) |
+| **Weight Decay** | 1e-3 | 增强正则化 (原5e-4) |
 | **Momentum** | 0.9 | |
 | **Scheduler** | CosineAnnealingLR | T_max = Total Epochs |
-| **Batch Size** | 128 | |
+| **Batch Size** | 64 | 增加更新次数 (原128) |
 | **Phase A Epochs** | 200 | 快速筛选 |
 | **Phase C/D Epochs** | **800** | **关键修正**: 补偿数据量减少 |
 | **AMP** | Enabled | 混合精度加速 |

@@ -306,19 +306,19 @@ class EarlyStopping:
 def get_optimizer_and_scheduler(
     model: nn.Module,
     total_epochs: int,
-    lr: float = 0.1,
-    weight_decay: float = 5e-4,
+    lr: float = 0.05,
+    weight_decay: float = 1e-3,
     momentum: float = 0.9,
 ) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler]:
     """Create SGD optimizer and CosineAnnealingLR scheduler.
     
-    Uses fixed hyperparameters per No-NAS constraint (research_plan_v4.md).
+    Hyperparameters optimized for low-data regime (9k samples, 100 classes).
     
     Args:
         model: The model to optimize.
         total_epochs: Total number of training epochs (for scheduler T_max).
-        lr: Learning rate. Default 0.1.
-        weight_decay: Weight decay. Default 5e-4.
+        lr: Learning rate. Default 0.05 (balanced for low-data regime).
+        weight_decay: Weight decay. Default 1e-3 (increased for regularization).
         momentum: SGD momentum. Default 0.9.
         
     Returns:
@@ -403,9 +403,9 @@ if __name__ == "__main__":
     optimizer, scheduler = get_optimizer_and_scheduler(model, total_epochs=200)
     
     assert isinstance(optimizer, torch.optim.SGD), "Expected SGD optimizer"
-    assert optimizer.defaults["lr"] == 0.1, f"Expected lr=0.1, got {optimizer.defaults['lr']}"
+    assert optimizer.defaults["lr"] == 0.05, f"Expected lr=0.05, got {optimizer.defaults['lr']}"
     assert optimizer.defaults["momentum"] == 0.9, "Expected momentum=0.9"
-    assert optimizer.defaults["weight_decay"] == 5e-4, "Expected weight_decay=5e-4"
+    assert optimizer.defaults["weight_decay"] == 1e-3, "Expected weight_decay=1e-3"
     print(f"      Optimizer: {optimizer.__class__.__name__}")
     print(f"      Scheduler: {scheduler.__class__.__name__}")
     print("      ✓ Optimizer and scheduler check passed")
