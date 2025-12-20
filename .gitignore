@@ -1,3 +1,29 @@
+# ==============================================================================
+# Project-Specific Rules (Prior-Guided Augmentation Policy)
+# ==============================================================================
+
+# Dataset files (CIFAR-100) - users should download via torchvision
+data/
+*.tar.gz
+
+# Experiment outputs - results are machine/run specific
+outputs/
+results/
+
+# Model checkpoints
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+
+# Logs
+logs/
+*.log
+
+# ==============================================================================
+# Python Standard Ignores
+# ==============================================================================
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -207,3 +233,36 @@ marimo/_lsp/
 __marimo__/
 
 .cursor/
+
+# ==============================================================================
+# OS-Specific
+# ==============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# ==============================================================================
+# IDE-Specific
+# ==============================================================================
+
+# VSCode / Cursor
+.vscode/
+
+# PyCharm / IntelliJ
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/
