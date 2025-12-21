@@ -8,7 +8,6 @@ data/
 
 # Experiment outputs - results are machine/run specific
 outputs/
-results/
 
 # Model checkpoints
 checkpoints/
