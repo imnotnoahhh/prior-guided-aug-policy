@@ -5,7 +5,11 @@ Settings: epochs=200, batch_size=64, lr=0.05, wd=1e-3, early_stop_patience=5
 
 Usage:
     python run_baseline.py
+
+Output:
+    outputs/baseline_result.csv
 """
+import csv
 import sys
 from pathlib import Path
 
@@ -176,6 +180,18 @@ def run_baseline(
     print(f"Best Top-5 Acc: {best_top5_acc:.1f}%")
     print(f"Best Val Loss: {best_val_loss:.4f}")
     print("=" * 70)
+    
+    # Save to CSV
+    output_dir = Path("outputs")
+    output_dir.mkdir(exist_ok=True)
+    csv_path = output_dir / "baseline_result.csv"
+    
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["op_name", "magnitude", "val_acc", "val_loss", "top5_acc", "epochs_run", "error"])
+        writer.writerow(["Baseline", 0.0, best_val_acc, best_val_loss, best_top5_acc, epochs_run, ""])
+    
+    print(f"\nResults saved to: {csv_path}")
     
     return {
         "val_acc": best_val_acc,
