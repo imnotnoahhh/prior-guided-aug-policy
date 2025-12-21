@@ -172,7 +172,7 @@ def get_cifar100_loaders(
     batch_size: int = 128,
     train_transform: Optional[Callable] = None,
     val_transform: Optional[Callable] = None,
-    num_workers: int = 4,
+    num_workers: int = 6,
     pin_memory: bool = True,
 ) -> Tuple[DataLoader, DataLoader]:
     """Create train and validation DataLoaders for CIFAR-100 subsampled dataset.
@@ -266,7 +266,7 @@ if __name__ == "__main__":
     
     # Create a DataLoader and get one batch
     print("\n[3/4] Loading one batch from train dataset...")
-    loader = DataLoader(train_ds, batch_size=32, shuffle=True, num_workers=0)
+    loader = DataLoader(train_ds, batch_size=32, shuffle=True, num_workers=6)
     images, labels = next(iter(loader))
     print(f"      Batch shape: {images.shape}")
     print(f"      Labels shape: {labels.shape}")

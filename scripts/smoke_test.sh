@@ -149,7 +149,7 @@ SMOKE_OUTPUT_DIR="outputs/smoke_${TIMESTAMP}"
 mkdir -p "$SMOKE_OUTPUT_DIR"
 
 # Run Phase A with isolated output directory
-python main_phase_a.py --epochs 1 --n_samples 2 --num_workers 0 --output_dir "$SMOKE_OUTPUT_DIR"
+python main_phase_a.py --epochs 1 --n_samples 2 --num_workers 6 --output_dir "$SMOKE_OUTPUT_DIR"
 
 # Set the CSV path for validation
 SMOKE_CSV="${SMOKE_OUTPUT_DIR}/phase_a_results.csv"

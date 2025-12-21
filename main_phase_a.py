@@ -85,7 +85,7 @@ def train_single_config(
     device: torch.device,
     fold_idx: int = 0,
     batch_size: int = 64,
-    num_workers: int = 4,
+    num_workers: int = 6,
     early_stop_patience: int = 5,
     seed: int = 42,
 ) -> Dict:
