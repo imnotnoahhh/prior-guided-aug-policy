@@ -335,8 +335,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--num_workers",
         type=int,
-        default=4,
-        help="Number of data loading workers (default: 4)"
+        default=6,
+        help="Number of data loading workers (default: 6)"
     )
     
     parser.add_argument(
