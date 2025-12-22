@@ -262,15 +262,24 @@ def train_single_config(
     # Set seed with deterministic mode
     set_seed_deterministic(seed, deterministic=deterministic)
     
+    # Initialize result with unified format
     result = {
+        "phase": "PhaseB",
         "op_name": op_name,
-        "magnitude": magnitude,
+        "magnitude": str(magnitude),
+        "probability": "1.0",
         "seed": seed,
+        "fold_idx": fold_idx,
         "val_acc": -1.0,
         "val_loss": -1.0,
         "top5_acc": -1.0,
+        "train_acc": -1.0,
+        "train_loss": -1.0,
         "epochs_run": 0,
+        "best_epoch": 0,
+        "early_stopped": False,
         "runtime_sec": 0.0,
+        "timestamp": "",
         "error": "",
     }
     
@@ -301,14 +310,17 @@ def train_single_config(
             download=True,
         )
         
-        # Create data loaders
+        # Create data loaders with optimized settings
+        use_cuda = device.type == "cuda"
         train_loader = DataLoader(
             train_dataset,
             batch_size=batch_size,
             shuffle=True,
             num_workers=num_workers,
-            pin_memory=True if device.type == "cuda" else False,
+            pin_memory=use_cuda,
             drop_last=False,
+            persistent_workers=True if num_workers > 0 else False,
+            prefetch_factor=4 if num_workers > 0 else None,
         )
         
         val_loader = DataLoader(
@@ -316,13 +328,22 @@ def train_single_config(
             batch_size=batch_size,
             shuffle=False,
             num_workers=num_workers,
-            pin_memory=True if device.type == "cuda" else False,
+            pin_memory=use_cuda,
             drop_last=False,
+            persistent_workers=True if num_workers > 0 else False,
+            prefetch_factor=4 if num_workers > 0 else None,
         )
         
-        # Create model
+        # Create model with torch.compile optimization
         model = create_model(num_classes=100, pretrained=False)
         model = model.to(device)
+        
+        # Apply torch.compile for faster training (PyTorch 2.0+)
+        if hasattr(torch, "compile") and use_cuda:
+            try:
+                model = torch.compile(model)
+            except Exception:
+                pass  # Fallback to eager mode silently
         
         # Loss function
         criterion = nn.CrossEntropyLoss()
@@ -344,10 +365,14 @@ def train_single_config(
         # Early stopping
         early_stopper = EarlyStopping(patience=early_stop_patience, mode="min")
         
-        # Training loop
+        # Training loop - track all metrics
         best_val_acc = 0.0
         best_val_loss = float("inf")
         best_top5_acc = 0.0
+        best_train_acc = 0.0
+        best_train_loss = 0.0
+        best_epoch = 0
+        early_stopped = False
         
         for epoch in range(epochs):
             # Train one epoch
@@ -368,11 +393,14 @@ def train_single_config(
                 device=device,
             )
             
-            # Update best metrics
+            # Update best metrics (by val_acc)
             if val_acc > best_val_acc:
                 best_val_acc = val_acc
                 best_val_loss = val_loss
                 best_top5_acc = top5_acc
+                best_train_acc = train_acc
+                best_train_loss = train_loss
+                best_epoch = epoch + 1
             
             # Step scheduler
             scheduler.step()
@@ -380,20 +408,26 @@ def train_single_config(
             # Early stopping check
             if early_stopper(val_loss):
                 result["epochs_run"] = epoch + 1
+                early_stopped = True
                 break
             
             result["epochs_run"] = epoch + 1
         
-        # Final results
-        result["val_acc"] = best_val_acc
-        result["val_loss"] = best_val_loss
-        result["top5_acc"] = best_top5_acc
+        # Final results with unified format
+        result["val_acc"] = round(best_val_acc, 4)
+        result["val_loss"] = round(best_val_loss, 6)
+        result["top5_acc"] = round(best_top5_acc, 4)
+        result["train_acc"] = round(best_train_acc, 4)
+        result["train_loss"] = round(best_train_loss, 6)
+        result["best_epoch"] = best_epoch
+        result["early_stopped"] = early_stopped
         
     except Exception as e:
         result["error"] = f"{type(e).__name__}: {str(e)}"
         traceback.print_exc()
     
-    result["runtime_sec"] = time.time() - start_time
+    result["runtime_sec"] = round(time.time() - start_time, 2)
+    result["timestamp"] = datetime.now().isoformat(timespec='seconds')
     
     return result
 
@@ -409,14 +443,19 @@ def write_raw_csv_row(
 ) -> None:
     """Append one row to raw CSV with immediate flush.
     
+    Uses unified CSV format for all phases.
+    
     Args:
         path: Path to CSV file.
         row: Dict representing one row.
         write_header: If True, write header before row.
     """
+    # Unified CSV fieldnames (same for all phases)
     fieldnames = [
-        "op_name", "magnitude", "seed", "val_acc", "val_loss",
-        "top5_acc", "epochs_run", "runtime_sec", "error"
+        "phase", "op_name", "magnitude", "probability", "seed", "fold_idx",
+        "val_acc", "val_loss", "top5_acc", "train_acc", "train_loss",
+        "epochs_run", "best_epoch", "early_stopped", "runtime_sec",
+        "timestamp", "error"
     ]
     
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -451,42 +490,52 @@ def check_csv_needs_header(path: Path) -> bool:
 
 def aggregate_results(raw_csv_path: Path, summary_csv_path: Path) -> pd.DataFrame:
     """Aggregate raw results into summary with mean/std per (op, magnitude).
-    
+
     Groups by (op_name, magnitude) and computes:
     - mean_val_acc, std_val_acc
     - mean_top5_acc, std_top5_acc
+    - mean_train_acc, std_train_acc
     - n_seeds (should be 3 for valid runs)
-    
+
     Sorts by mean_val_acc descending.
-    
+
     Args:
         raw_csv_path: Path to raw results CSV.
         summary_csv_path: Path to write summary CSV.
-        
+
     Returns:
         Summary DataFrame.
     """
     df = pd.read_csv(raw_csv_path)
-    
+
     # Filter out error rows
     df = df[(df["error"].isna()) | (df["error"] == "")]
-    
+
     # Group by (op_name, magnitude)
     summary = df.groupby(["op_name", "magnitude"]).agg(
         mean_val_acc=("val_acc", "mean"),
         std_val_acc=("val_acc", "std"),
         mean_top5_acc=("top5_acc", "mean"),
         std_top5_acc=("top5_acc", "std"),
+        mean_train_acc=("train_acc", "mean"),
+        std_train_acc=("train_acc", "std"),
+        mean_runtime_sec=("runtime_sec", "mean"),
         n_seeds=("seed", "count"),
     ).reset_index()
-    
+
     # Fill NaN std (happens when n=1)
     summary["std_val_acc"] = summary["std_val_acc"].fillna(0.0)
     summary["std_top5_acc"] = summary["std_top5_acc"].fillna(0.0)
-    
+    summary["std_train_acc"] = summary["std_train_acc"].fillna(0.0)
+
+    # Round values
+    for col in ["mean_val_acc", "std_val_acc", "mean_top5_acc", "std_top5_acc",
+                "mean_train_acc", "std_train_acc", "mean_runtime_sec"]:
+        summary[col] = summary[col].round(4)
+
     # Sort by mean_val_acc descending
     summary = summary.sort_values("mean_val_acc", ascending=False)
-    
+
     # Save to CSV
     summary.to_csv(summary_csv_path, index=False)
     
@@ -594,15 +643,12 @@ def run_phase_b_grid_search(
     
     # Main training loop
     print(f"\nStarting Phase B grid search...")
-    print(f"Device: {device}")
-    print(f"Epochs: {epochs}")
-    print(f"Seeds: {seeds}")
-    print(f"Deterministic: {deterministic}")
     print("-" * 70)
-    
+
     success_count = 0
     error_count = 0
-    
+    total_start_time = time.time()
+
     for op_name, magnitude, seed in tqdm(all_configs, desc="Phase B Tuning", unit="run"):
         try:
             result = train_single_config(
@@ -627,16 +673,24 @@ def run_phase_b_grid_search(
             error_msg = f"{type(e).__name__}: {str(e)}"
             print(f"\nERROR in {op_name} (m={magnitude:.4f}, seed={seed}): {error_msg}")
             traceback.print_exc()
-            
+
             result = {
+                "phase": "PhaseB",
                 "op_name": op_name,
-                "magnitude": magnitude,
+                "magnitude": str(magnitude),
+                "probability": "1.0",
                 "seed": seed,
+                "fold_idx": fold_idx,
                 "val_acc": -1.0,
                 "val_loss": -1.0,
                 "top5_acc": -1.0,
+                "train_acc": -1.0,
+                "train_loss": -1.0,
                 "epochs_run": 0,
+                "best_epoch": 0,
+                "early_stopped": False,
                 "runtime_sec": 0.0,
+                "timestamp": datetime.now().isoformat(timespec='seconds'),
                 "error": error_msg,
             }
             error_count += 1
@@ -651,14 +705,19 @@ def run_phase_b_grid_search(
     summary_df = aggregate_results(raw_csv_path, summary_csv_path)
     
     # Print summary
+    total_runtime = time.time() - total_start_time
+    
     print("\n" + "=" * 70)
     print("Phase B Complete")
     print("=" * 70)
-    print(f"Successful runs: {success_count}")
-    print(f"Failed runs: {error_count}")
+    print(f"Successful: {success_count}")
+    print(f"Failed: {error_count}")
+    print(f"Total runtime: {total_runtime:.1f}s ({total_runtime/60:.1f}min)")
+    print("-" * 70)
     print(f"Raw results: {raw_csv_path}")
     print(f"Summary: {summary_csv_path}")
-    print("\nTop 10 configurations by mean_val_acc:")
+    print("-" * 70)
+    print("Top 10 configurations by mean_val_acc:")
     print(summary_df.head(10).to_string(index=False))
     print("=" * 70)
     
@@ -732,9 +791,9 @@ def parse_args() -> argparse.Namespace:
     )
     
     parser.add_argument(
-        "--deterministic",
+        "--no_deterministic",
         action="store_true",
-        help="Enable deterministic CUDA mode for reproducibility"
+        help="Disable deterministic CUDA mode (faster but less reproducible)"
     )
     
     parser.add_argument(
@@ -801,19 +860,26 @@ def main() -> int:
     if args.ops:
         ops_filter = [op.strip() for op in args.ops.split(",")]
     
+    deterministic = not args.no_deterministic
+    device = get_device()
+    
     print("=" * 70)
     print("Phase B: Augmentation Tuning")
     print("=" * 70)
-    print(f"Epochs per config: {args.epochs}")
-    print(f"Seeds: {seeds}")
+    print(f"Device: {device}")
+    print(f"Epochs: {args.epochs}")
+    print(f"Batch size: 64")
     print(f"Fold: {args.fold_idx}")
+    print(f"Seeds: {seeds}")
+    print(f"Deterministic: {deterministic}")
+    print(f"LR: 0.05, WD: 1e-3, Momentum: 0.9")
+    print(f"Early stop patience: {args.early_stop_patience}")
     print(f"Output dir: {args.output_dir}")
+    print("-" * 70)
     print(f"Phase A CSV: {args.phase_a_csv}")
     print(f"Baseline CSV: {args.baseline_csv}")
     print(f"Top-K centers: {args.top_k}")
-    print(f"Grid step: {args.grid_step}")
-    print(f"Grid n_steps: {args.grid_n_steps}")
-    print(f"Deterministic: {args.deterministic}")
+    print(f"Grid step: {args.grid_step}, n_steps: {args.grid_n_steps}")
     if ops_filter:
         print(f"Ops filter: {ops_filter}")
     if args.dry_run:
@@ -830,7 +896,7 @@ def main() -> int:
             fold_idx=args.fold_idx,
             num_workers=args.num_workers,
             early_stop_patience=args.early_stop_patience,
-            deterministic=args.deterministic,
+            deterministic=deterministic,
             top_k=args.top_k,
             grid_step=args.grid_step,
             grid_n_steps=args.grid_n_steps,

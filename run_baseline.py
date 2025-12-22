@@ -11,6 +11,8 @@ Output:
 """
 import csv
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 import torch
@@ -25,7 +27,7 @@ from src.dataset import CIFAR100Subsampled
 from src.augmentations import get_baseline_transform, get_val_transform
 from src.models import create_model
 from src.utils import (
-    set_seed,
+    set_seed_deterministic,
     get_device,
     train_one_epoch,
     evaluate,
@@ -41,22 +43,26 @@ def run_baseline(
     num_workers: int = 6,
     early_stop_patience: int = 5,
     seed: int = 42,
+    deterministic: bool = True,
 ):
     """Run S0 Baseline with same settings as Phase A."""
     
-    set_seed(seed)
+    # Set seed with deterministic mode for reproducibility
+    set_seed_deterministic(seed, deterministic=deterministic)
     device = get_device()
     
     print("=" * 70)
-    print("S0 Baseline Test (Same settings as Phase A)")
+    print("Baseline: S0 Baseline Training")
     print("=" * 70)
     print(f"Device: {device}")
     print(f"Epochs: {epochs}")
     print(f"Batch size: {batch_size}")
-    print(f"LR: 0.05, WD: 1e-3, Momentum: 0.9")
-    print(f"Early stop patience: {early_stop_patience}")
     print(f"Fold: {fold_idx}")
     print(f"Seed: {seed}")
+    print(f"Deterministic: {deterministic}")
+    print(f"LR: 0.05, WD: 1e-3, Momentum: 0.9")
+    print(f"Early stop patience: {early_stop_patience}")
+    print(f"Output dir: outputs")
     print("=" * 70)
     
     # Build transforms - S0 Baseline only (RandomCrop + HorizontalFlip)
@@ -80,14 +86,17 @@ def run_baseline(
         download=True,
     )
     
-    # Create data loaders (same settings as Phase A)
+    # Create data loaders with optimized settings
+    use_cuda = device.type == "cuda"
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
-        pin_memory=True if device.type == "cuda" else False,
+        pin_memory=use_cuda,
         drop_last=False,
+        persistent_workers=True if num_workers > 0 else False,
+        prefetch_factor=4 if num_workers > 0 else None,
     )
     
     val_loader = DataLoader(
@@ -95,13 +104,23 @@ def run_baseline(
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
-        pin_memory=True if device.type == "cuda" else False,
+        pin_memory=use_cuda,
         drop_last=False,
+        persistent_workers=True if num_workers > 0 else False,
+        prefetch_factor=4 if num_workers > 0 else None,
     )
     
-    # Create model
+    # Create model with torch.compile optimization
     model = create_model(num_classes=100, pretrained=False)
     model = model.to(device)
+    
+    # Apply torch.compile for faster training (PyTorch 2.0+)
+    if hasattr(torch, "compile") and use_cuda:
+        try:
+            model = torch.compile(model)
+            print("torch.compile enabled")
+        except Exception as e:
+            print(f"torch.compile failed, using eager mode: {e}")
     
     # Loss function
     criterion = nn.CrossEntropyLoss()
@@ -123,14 +142,25 @@ def run_baseline(
     # Early stopping (same as Phase A)
     early_stopper = EarlyStopping(patience=early_stop_patience, mode="min")
     
-    # Training loop
+    # Training loop - track all metrics for CSV
     best_val_acc = 0.0
     best_val_loss = float("inf")
     best_top5_acc = 0.0
+    best_train_acc = 0.0
+    best_train_loss = 0.0
+    best_epoch = 0
     epochs_run = 0
+    early_stopped = False
+    best_model_state = None  # Store best model state for checkpoint
+    
+    # Prepare checkpoint directory
+    checkpoint_dir = Path("outputs/checkpoints")
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
     
     print("\nTraining S0 Baseline...")
     print("-" * 50)
+    
+    start_time = time.time()
     
     for epoch in range(epochs):
         epochs_run = epoch + 1
@@ -156,11 +186,20 @@ def run_baseline(
         # Update scheduler
         scheduler.step()
         
-        # Track best
+        # Track best (by val_acc) and save model state
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             best_top5_acc = top5_acc
             best_val_loss = val_loss
+            best_train_acc = train_acc
+            best_train_loss = train_loss
+            best_epoch = epoch + 1
+            # Save best model state (deep copy to avoid reference issues)
+            best_model_state = {
+                "model_state_dict": {k: v.cpu().clone() for k, v in model.state_dict().items()},
+                "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
+            }
         
         # Print progress every 10 epochs
         if (epoch + 1) % 10 == 0:
@@ -169,35 +208,100 @@ def run_baseline(
         # Early stopping check
         if early_stopper(val_loss):
             print(f"\nEarly stopping at epoch {epoch + 1}")
+            early_stopped = True
             break
     
-    print("-" * 50)
+    runtime_sec = time.time() - start_time
+    timestamp = datetime.now().isoformat(timespec='seconds')
+    
+    print("-" * 70)
     print("\n" + "=" * 70)
-    print("S0 BASELINE RESULT")
+    print("Baseline Complete")
     print("=" * 70)
-    print(f"Epochs run: {epochs_run}")
-    print(f"Best Val Acc: {best_val_acc:.1f}%")
-    print(f"Best Top-5 Acc: {best_top5_acc:.1f}%")
-    print(f"Best Val Loss: {best_val_loss:.4f}")
+    print(f"Successful: 1")
+    print(f"Failed: 0")
+    print(f"Total runtime: {runtime_sec:.1f}s ({runtime_sec/60:.1f}min)")
+    print("-" * 70)
+    print(f"Best Epoch: {best_epoch}/{epochs_run}")
+    print(f"Val Acc: {best_val_acc:.2f}%  |  Top-5: {best_top5_acc:.2f}%")
+    print(f"Train Acc: {best_train_acc:.2f}%  |  Val Loss: {best_val_loss:.4f}")
+    print(f"Early Stopped: {early_stopped}")
     print("=" * 70)
     
-    # Save to CSV
+    # Save to CSV with unified format
     output_dir = Path("outputs")
     output_dir.mkdir(exist_ok=True)
     csv_path = output_dir / "baseline_result.csv"
     
+    # Unified CSV fieldnames (same for all phases)
+    fieldnames = [
+        "phase", "op_name", "magnitude", "probability", "seed", "fold_idx",
+        "val_acc", "val_loss", "top5_acc", "train_acc", "train_loss",
+        "epochs_run", "best_epoch", "early_stopped", "runtime_sec",
+        "timestamp", "error"
+    ]
+    
+    row = {
+        "phase": "Baseline",
+        "op_name": "Baseline",
+        "magnitude": "0.0",
+        "probability": "1.0",
+        "seed": seed,
+        "fold_idx": fold_idx,
+        "val_acc": round(best_val_acc, 4),
+        "val_loss": round(best_val_loss, 6),
+        "top5_acc": round(best_top5_acc, 4),
+        "train_acc": round(best_train_acc, 4),
+        "train_loss": round(best_train_loss, 6),
+        "epochs_run": epochs_run,
+        "best_epoch": best_epoch,
+        "early_stopped": early_stopped,
+        "runtime_sec": round(runtime_sec, 2),
+        "timestamp": timestamp,
+        "error": "",
+    }
+    
     with open(csv_path, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["op_name", "magnitude", "val_acc", "val_loss", "top5_acc", "epochs_run", "error"])
-        writer.writerow(["Baseline", 0.0, best_val_acc, best_val_loss, best_top5_acc, epochs_run, ""])
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerow(row)
     
     print(f"\nResults saved to: {csv_path}")
+    
+    # Save best model checkpoint
+    if best_model_state is not None:
+        checkpoint_path = checkpoint_dir / "baseline_best.pth"
+        checkpoint = {
+            "model_state_dict": best_model_state["model_state_dict"],
+            "optimizer_state_dict": best_model_state["optimizer_state_dict"],
+            "scheduler_state_dict": best_model_state["scheduler_state_dict"],
+            "epoch": best_epoch,
+            "val_acc": best_val_acc,
+            "top5_acc": best_top5_acc,
+            "val_loss": best_val_loss,
+            "config": {
+                "seed": seed,
+                "fold_idx": fold_idx,
+                "epochs": epochs,
+                "batch_size": batch_size,
+                "lr": 0.05,
+                "weight_decay": 1e-3,
+                "momentum": 0.9,
+            }
+        }
+        torch.save(checkpoint, checkpoint_path)
+        print(f"Checkpoint saved to: {checkpoint_path}")
     
     return {
         "val_acc": best_val_acc,
         "top5_acc": best_top5_acc,
         "val_loss": best_val_loss,
+        "train_acc": best_train_acc,
+        "train_loss": best_train_loss,
         "epochs_run": epochs_run,
+        "best_epoch": best_epoch,
+        "early_stopped": early_stopped,
+        "runtime_sec": runtime_sec,
     }
 
 

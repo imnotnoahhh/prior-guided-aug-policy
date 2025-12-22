@@ -19,6 +19,7 @@ import argparse
 import csv
 import os
 import sys
+import time
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -42,7 +43,7 @@ from src.utils import (
     evaluate,
     get_device,
     get_optimizer_and_scheduler,
-    set_seed,
+    set_seed_deterministic,
     train_one_epoch,
     ensure_dir,
 )
@@ -88,6 +89,7 @@ def train_single_config(
     num_workers: int = 6,
     early_stop_patience: int = 5,
     seed: int = 42,
+    deterministic: bool = True,
 ) -> Dict:
     """Train one configuration and return metrics.
     
@@ -101,20 +103,32 @@ def train_single_config(
         num_workers: Number of data loading workers.
         early_stop_patience: Epochs to wait before early stopping.
         seed: Random seed for reproducibility.
+        deterministic: If True, enable deterministic CUDA mode.
         
     Returns:
-        Dict with keys: op_name, magnitude, val_acc, val_loss, top5_acc,
-                        epochs_run, train_time, error
+        Dict with unified CSV format fields.
     """
-    set_seed(seed)
+    start_time = time.time()
+    set_seed_deterministic(seed, deterministic=deterministic)
     
+    # Initialize result with unified format
     result = {
+        "phase": "PhaseA",
         "op_name": op_name,
-        "magnitude": magnitude,
+        "magnitude": str(magnitude),
+        "probability": "1.0",
+        "seed": seed,
+        "fold_idx": fold_idx,
         "val_acc": -1.0,
         "val_loss": -1.0,
         "top5_acc": -1.0,
+        "train_acc": -1.0,
+        "train_loss": -1.0,
         "epochs_run": 0,
+        "best_epoch": 0,
+        "early_stopped": False,
+        "runtime_sec": 0.0,
+        "timestamp": "",
         "error": "",
     }
     
@@ -144,14 +158,17 @@ def train_single_config(
         download=True,
     )
     
-    # Create data loaders
+    # Create data loaders with optimized settings
+    use_cuda = device.type == "cuda"
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
-        pin_memory=True if device.type == "cuda" else False,
+        pin_memory=use_cuda,
         drop_last=False,
+        persistent_workers=True if num_workers > 0 else False,
+        prefetch_factor=4 if num_workers > 0 else None,
     )
     
     val_loader = DataLoader(
@@ -159,13 +176,22 @@ def train_single_config(
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
-        pin_memory=True if device.type == "cuda" else False,
+        pin_memory=use_cuda,
         drop_last=False,
+        persistent_workers=True if num_workers > 0 else False,
+        prefetch_factor=4 if num_workers > 0 else None,
     )
     
-    # Create model
+    # Create model with torch.compile optimization
     model = create_model(num_classes=100, pretrained=False)
     model = model.to(device)
+    
+    # Apply torch.compile for faster training (PyTorch 2.0+)
+    if hasattr(torch, "compile") and use_cuda:
+        try:
+            model = torch.compile(model)
+        except Exception:
+            pass  # Fallback to eager mode silently
     
     # Loss function
     criterion = nn.CrossEntropyLoss()
@@ -187,10 +213,14 @@ def train_single_config(
     # Early stopping
     early_stopper = EarlyStopping(patience=early_stop_patience, mode="min")
     
-    # Training loop
+    # Training loop - track all metrics
     best_val_acc = 0.0
     best_val_loss = float("inf")
     best_top5_acc = 0.0
+    best_train_acc = 0.0
+    best_train_loss = 0.0
+    best_epoch = 0
+    early_stopped = False
     
     for epoch in range(epochs):
         # Train one epoch
@@ -211,11 +241,14 @@ def train_single_config(
             device=device,
         )
         
-        # Update best metrics
+        # Update best metrics (by val_acc)
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             best_val_loss = val_loss
             best_top5_acc = top5_acc
+            best_train_acc = train_acc
+            best_train_loss = train_loss
+            best_epoch = epoch + 1
         
         # Step scheduler
         scheduler.step()
@@ -223,14 +256,21 @@ def train_single_config(
         # Early stopping check
         if early_stopper(val_loss):
             result["epochs_run"] = epoch + 1
+            early_stopped = True
             break
         
         result["epochs_run"] = epoch + 1
     
-    # Final results
-    result["val_acc"] = best_val_acc
-    result["val_loss"] = best_val_loss
-    result["top5_acc"] = best_top5_acc
+    # Final results with unified format
+    result["val_acc"] = round(best_val_acc, 4)
+    result["val_loss"] = round(best_val_loss, 6)
+    result["top5_acc"] = round(best_top5_acc, 4)
+    result["train_acc"] = round(best_train_acc, 4)
+    result["train_loss"] = round(best_train_loss, 6)
+    result["best_epoch"] = best_epoch
+    result["early_stopped"] = early_stopped
+    result["runtime_sec"] = round(time.time() - start_time, 2)
+    result["timestamp"] = datetime.now().isoformat(timespec='seconds')
     
     return result
 
@@ -246,12 +286,20 @@ def write_csv_row(
 ) -> None:
     """Append one row to CSV with immediate flush.
     
+    Uses unified CSV format for all phases.
+    
     Args:
         path: Path to CSV file.
         row: Dict representing one row.
         write_header: If True, write header before row.
     """
-    fieldnames = ["op_name", "magnitude", "val_acc", "val_loss", "top5_acc", "epochs_run", "error"]
+    # Unified CSV fieldnames (same for all phases)
+    fieldnames = [
+        "phase", "op_name", "magnitude", "probability", "seed", "fold_idx",
+        "val_acc", "val_loss", "top5_acc", "train_acc", "train_loss",
+        "epochs_run", "best_epoch", "early_stopped", "runtime_sec",
+        "timestamp", "error"
+    ]
     
     # Ensure parent directory exists
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -346,6 +394,14 @@ def parse_args() -> argparse.Namespace:
         help="Early stopping patience (default: 5)"
     )
     
+    parser.add_argument(
+        "--ops",
+        type=str,
+        default=None,
+        help="Comma-separated list of ops to evaluate (default: all ops). "
+             "Example: --ops RandomRotation,ColorJitter"
+    )
+    
     return parser.parse_args()
 
 
@@ -357,20 +413,25 @@ def main() -> int:
     """
     args = parse_args()
     
+    # Setup
+    set_seed_deterministic(args.seed, deterministic=True)
+    device = get_device()
+    
     print("=" * 70)
     print("Phase A: Augmentation Screening")
     print("=" * 70)
-    print(f"Epochs per config: {args.epochs}")
-    print(f"Sobol samples: {args.n_samples}")
-    print(f"Fold: {args.fold_idx}")
-    print(f"Output dir: {args.output_dir}")
-    print(f"Seed: {args.seed}")
-    print("=" * 70)
-    
-    # Setup
-    set_seed(args.seed)
-    device = get_device()
     print(f"Device: {device}")
+    print(f"Epochs: {args.epochs}")
+    print(f"Batch size: 64")
+    print(f"Fold: {args.fold_idx}")
+    print(f"Seed: {args.seed}")
+    print(f"Deterministic: True")
+    print(f"LR: 0.05, WD: 1e-3, Momentum: 0.9")
+    print(f"Early stop patience: {args.early_stop_patience}")
+    print(f"Output dir: {args.output_dir}")
+    print("-" * 70)
+    print(f"Sobol samples per op: {args.n_samples}")
+    print("=" * 70)
     
     # Output path
     output_dir = Path(args.output_dir)
@@ -381,7 +442,20 @@ def main() -> int:
     write_header = check_csv_needs_header(csv_path)
     
     # Get available operations
-    ops = AugmentationSpace.get_available_ops()
+    all_ops = AugmentationSpace.get_available_ops()
+    
+    # Filter ops if --ops is specified
+    if args.ops:
+        ops = [op.strip() for op in args.ops.split(",")]
+        # Validate ops
+        invalid_ops = [op for op in ops if op not in all_ops]
+        if invalid_ops:
+            print(f"ERROR: Invalid ops: {invalid_ops}")
+            print(f"Available ops: {all_ops}")
+            return 1
+    else:
+        ops = all_ops
+    
     print(f"Operations to evaluate: {len(ops)}")
     print(f"Operations: {ops}")
     
@@ -407,8 +481,9 @@ def main() -> int:
     # Main loop with tqdm on outermost level
     success_count = 0
     error_count = 0
+    total_start_time = time.time()
     
-    for op_name, magnitude in tqdm(configs, desc="Screening", unit="config"):
+    for op_name, magnitude in tqdm(configs, desc="Phase A Screening", unit="config"):
         try:
             # Train and evaluate this configuration
             result = train_single_config(
@@ -430,12 +505,22 @@ def main() -> int:
             traceback.print_exc()
             
             result = {
+                "phase": "PhaseA",
                 "op_name": op_name,
-                "magnitude": magnitude,
+                "magnitude": str(magnitude),
+                "probability": "1.0",
+                "seed": args.seed,
+                "fold_idx": args.fold_idx,
                 "val_acc": -1.0,
                 "val_loss": -1.0,
                 "top5_acc": -1.0,
+                "train_acc": -1.0,
+                "train_loss": -1.0,
                 "epochs_run": 0,
+                "best_epoch": 0,
+                "early_stopped": False,
+                "runtime_sec": 0.0,
+                "timestamp": datetime.now().isoformat(timespec='seconds'),
                 "error": error_msg,
             }
             error_count += 1
@@ -445,11 +530,15 @@ def main() -> int:
         write_header = False  # Only write header once
     
     # Summary
+    total_runtime = time.time() - total_start_time
+    
     print("\n" + "=" * 70)
     print("Phase A Complete")
     print("=" * 70)
-    print(f"Successful configs: {success_count}")
-    print(f"Failed configs: {error_count}")
+    print(f"Successful: {success_count}")
+    print(f"Failed: {error_count}")
+    print(f"Total runtime: {total_runtime:.1f}s ({total_runtime/60:.1f}min)")
+    print("-" * 70)
     print(f"Results saved to: {csv_path}")
     print("=" * 70)
     

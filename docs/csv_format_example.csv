@@ -1,0 +1,1 @@
+phase,op_name,magnitude,probability,seed,fold_idx,val_acc,val_loss,top5_acc,train_acc,train_loss,epochs_run,best_epoch,early_stopped,runtime_sec,timestamp,error

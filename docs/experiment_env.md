@@ -2,15 +2,15 @@
 
 ## 1. 服务器配置
 
-### Phase A + Baseline
+### Phase A/B/C/D + Baseline
 
 | 项目 | 配置 |
 |------|------|
 | **云服务商** | 阿里云 |
-| **实例规格** | ecs.gn8is.2xlarge |
-| **GPU** | NVIDIA L20 (48GB) |
-| **vCPU** | 8 核 |
-| **内存** | 64 GiB |
+| **实例规格** | ecs.gn7i-4x.8xlarge |
+| **GPU** | 4 × NVIDIA A10 (4 × 24 GB) |
+| **vCPU** | 32 vCPU |
+| **内存** | 128 GiB |
 
 ### 系统环境
 
@@ -23,94 +23,132 @@
 
 ---
 
-## 2. 运行命令
+## 2. Baseline 运行
 
-### Baseline 测试
-
-```bash
-python run_baseline.py | tee logs/baseline_result.log
-```
-
-> **注意**: `run_baseline.py` 无命令行参数，使用硬编码设置：
-> epochs=200, batch_size=64, lr=0.05, wd=1e-3, early_stop_patience=5, seed=42, fold_idx=0
-
-### Phase A 筛选
-
-```bash
-# 冒烟测试 (先验证环境)
-bash scripts/smoke_test_phase_a.sh
-
-# 后台运行，保存日志
-nohup python main_phase_a.py > logs/phase_a_full.log 2>&1 &
-
-# 或前台运行（可实时查看）
-python main_phase_a.py | tee logs/phase_a_full.log
-
-# 完整参数版本 (如需自定义)
-# python main_phase_a.py \
-#     --epochs 200 \             # 默认值
-#     --n_samples 32 \           # 默认值，每个 op 的 Sobol 采样数
-#     --fold_idx 0 \             # 默认值
-#     --output_dir outputs \     # 默认值
-#     --seed 42 \                # 默认值
-#     --num_workers 6 \          # 默认值
-#     --early_stop_patience 5    # 默认值
-```
-
----
-
-## 3. 运行记录
-
-| 阶段 | 日期 | 耗时 | 状态 |
-|------|------|------|------|
-| Phase A | 2025-12-21 | 3h 47min | ✅ 完成 |
-| Baseline | 2025-12-21 | ~1min | ✅ 完成 |
-
----
-
-## 4. 输出文件
-
-| 文件 | 说明 |
-|------|------|
-| `outputs/phase_a_results.csv` | Phase A 筛选结果 (256 configs) |
-| `outputs/baseline_result.csv` | S0 Baseline 结果 |
-| `logs/phase_a_full.log` | Phase A 运行日志 |
-| `logs/baseline_result.log` | Baseline 运行日志 |
-
----
-
-## 5. Phase B 深度微调
+> **GPU 说明**: Baseline 只训练 1 次，默认使用 GPU 0。无需并行。
 
 ### 运行命令
 
 ```bash
-# 冒烟测试 (先验证环境)
+# 运行 Baseline (默认使用 GPU 0)
+python run_baseline.py | tee logs/baseline.log
+
+# 指定 GPU (可选)
+CUDA_VISIBLE_DEVICES=0 python run_baseline.py | tee logs/baseline.log
+
+# 后台运行
+CUDA_VISIBLE_DEVICES=0 nohup python run_baseline.py > logs/baseline.log 2>&1 &
+```
+
+### 输出文件
+
+| 文件 | 说明 |
+|------|------|
+| `outputs/baseline_result.csv` | Baseline 结果 |
+| `outputs/checkpoints/baseline_best.pth` | 最佳模型 checkpoint |
+| `logs/baseline.log` | 运行日志 |
+
+### 运行记录
+
+| 日期 | 耗时 | 状态 |
+|------|------|------|
+| - | - | 待运行 |
+
+---
+
+## 3. Phase A 筛选
+
+> **GPU 说明**: Phase A 顺序执行 256 个配置，默认使用 GPU 0。
+> 支持 4-GPU 并行（见第 6 节）。
+
+### 单 GPU 运行
+
+```bash
+# 冒烟测试
+bash scripts/smoke_test_phase_a.sh
+
+# 后台运行 (使用 GPU 0)
+CUDA_VISIBLE_DEVICES=0 nohup python main_phase_a.py > logs/phase_a.log 2>&1 &
+
+# 前台运行
+CUDA_VISIBLE_DEVICES=0 python main_phase_a.py | tee logs/phase_a.log
+```
+
+### 可选参数
+
+```bash
+python main_phase_a.py \
+    --epochs 200 \
+    --n_samples 32 \
+    --fold_idx 0 \
+    --output_dir outputs \
+    --seed 42 \
+    --num_workers 6 \
+    --early_stop_patience 5 \
+    --ops RandomRotation,ColorJitter  # 可选，仅评估指定的 ops
+```
+
+### 输出文件
+
+| 文件 | 说明 |
+|------|------|
+| `outputs/phase_a_results.csv` | Phase A 筛选结果 (256 configs) |
+| `logs/phase_a.log` | 运行日志 |
+
+### 运行记录
+
+| 日期 | 耗时 | 状态 |
+|------|------|------|
+| - | - | 待运行 |
+
+---
+
+## 4. Phase B 深度微调
+
+> **GPU 说明**: Phase B 默认使用 GPU 0，支持 4-GPU 并行（见第 7 节）。
+
+### 单 GPU 运行
+
+```bash
+# 冒烟测试
 bash scripts/smoke_test_phase_b.sh
 
-# 完整运行 (后台执行，使用默认参数)
-nohup python main_phase_b.py --deterministic > logs/phase_b_full.log 2>&1 &
+# 后台运行 (使用 GPU 0，默认开启 deterministic)
+CUDA_VISIBLE_DEVICES=0 nohup python main_phase_b.py > logs/phase_b.log 2>&1 &
 
-# 或前台运行
-python main_phase_b.py --deterministic | tee logs/phase_b_full.log
+# 前台运行
+CUDA_VISIBLE_DEVICES=0 python main_phase_b.py | tee logs/phase_b.log
 
-# 完整参数版本 (如需自定义)
-# python main_phase_b.py \
-#     --epochs 200 \                               # 默认值
-#     --seeds 42,123,456 \                         # 默认值
-#     --output_dir outputs \                       # 默认值
-#     --phase_a_csv outputs/phase_a_results.csv \  # 默认值
-#     --baseline_csv outputs/baseline_result.csv \ # 默认值
-#     --fold_idx 0 \                               # 默认值
-#     --num_workers 6 \                            # 默认值
-#     --early_stop_patience 5 \                    # 默认值
-#     --top_k 4 \                                  # 默认值，每个 op 取 Top-K 配置作为网格中心
-#     --grid_step 0.05 \                           # 默认值，网格步长
-#     --grid_n_steps 2 \                           # 默认值，每个方向的步数
-#     --deterministic                              # 推荐开启，保证可复现
-#
-# 调试参数 (可选):
-#     --ops ColorJitter,Brightness \               # 仅调优指定的 ops
-#     --dry_run                                    # 仅运行少量配置用于测试
+# 关闭 deterministic 以提高速度 (可选)
+CUDA_VISIBLE_DEVICES=0 python main_phase_b.py --no_deterministic | tee logs/phase_b.log
+```
+
+### 可选参数
+
+```bash
+python main_phase_b.py \
+    --epochs 200 \
+    --seeds 42,123,456 \
+    --output_dir outputs \
+    --phase_a_csv outputs/phase_a_results.csv \
+    --baseline_csv outputs/baseline_result.csv \
+    --fold_idx 0 \
+    --num_workers 6 \
+    --early_stop_patience 5 \
+    --top_k 4 \
+    --grid_step 0.05 \
+    --grid_n_steps 2 \
+    --no_deterministic  # 可选，关闭确定性模式以提高速度
+```
+
+### 调试参数
+
+```bash
+# 仅调优指定的 ops
+python main_phase_b.py --ops ColorJitter,GaussianBlur
+
+# 快速测试模式
+python main_phase_b.py --dry_run --epochs 2
 ```
 
 ### 输入文件
@@ -126,10 +164,68 @@ python main_phase_b.py --deterministic | tee logs/phase_b_full.log
 |------|------|
 | `outputs/phase_b_tuning_raw.csv` | 每个 (op, magnitude, seed) 的原始结果 |
 | `outputs/phase_b_tuning_summary.csv` | 聚合结果，按 mean_val_acc 降序排列 |
-| `logs/phase_b_full.log` | Phase B 运行日志 |
+| `logs/phase_b.log` | 运行日志 |
 
 ### 运行记录
 
-| 阶段 | 日期 | 耗时 | 状态 |
-|------|------|------|------|
-| Phase B | - | - | 待运行 |
+| 日期 | 耗时 | 状态 |
+|------|------|------|
+| - | - | 待运行 |
+
+---
+
+## 5. Phase C/D (待实现)
+
+> Phase C 和 Phase D 的代码尚未实现，后续添加。
+
+---
+
+## 6. 4-GPU 并行运行 Phase A (可选)
+
+如需加速 Phase A，可使用 4 个 GPU 并行（8 ops 分配到 4 GPU）：
+
+```bash
+# 每个 GPU 分配 2 个 ops
+CUDA_VISIBLE_DEVICES=0 python main_phase_a.py --ops RandomResizedCrop,RandomRotation --output_dir outputs/gpu0 > logs/phase_a_gpu0.log 2>&1 &
+CUDA_VISIBLE_DEVICES=1 python main_phase_a.py --ops RandomPerspective,ColorJitter --output_dir outputs/gpu1 > logs/phase_a_gpu1.log 2>&1 &
+CUDA_VISIBLE_DEVICES=2 python main_phase_a.py --ops RandomGrayscale,GaussianBlur --output_dir outputs/gpu2 > logs/phase_a_gpu2.log 2>&1 &
+CUDA_VISIBLE_DEVICES=3 python main_phase_a.py --ops RandomErasing,GaussianNoise --output_dir outputs/gpu3 > logs/phase_a_gpu3.log 2>&1 &
+
+wait
+echo "All Phase A GPUs finished!"
+```
+
+**合并结果**：
+
+```bash
+# 合并所有 GPU 的 CSV 结果
+head -1 outputs/gpu0/phase_a_results.csv > outputs/phase_a_results.csv
+tail -n +2 -q outputs/gpu*/phase_a_results.csv >> outputs/phase_a_results.csv
+```
+
+---
+
+## 7. 4-GPU 并行运行 Phase B (可选)
+
+如需加速 Phase B，可使用 4 个 GPU 并行：
+
+```bash
+# 每个 GPU 分配 2 个 ops
+CUDA_VISIBLE_DEVICES=0 python main_phase_b.py --ops RandomResizedCrop,RandomRotation --output_dir outputs/gpu0 > logs/phase_b_gpu0.log 2>&1 &
+CUDA_VISIBLE_DEVICES=1 python main_phase_b.py --ops RandomPerspective,ColorJitter --output_dir outputs/gpu1 > logs/phase_b_gpu1.log 2>&1 &
+CUDA_VISIBLE_DEVICES=2 python main_phase_b.py --ops RandomGrayscale,GaussianBlur --output_dir outputs/gpu2 > logs/phase_b_gpu2.log 2>&1 &
+CUDA_VISIBLE_DEVICES=3 python main_phase_b.py --ops RandomErasing,GaussianNoise --output_dir outputs/gpu3 > logs/phase_b_gpu3.log 2>&1 &
+
+wait
+echo "All Phase B GPUs finished!"
+```
+
+**合并结果**：
+
+```bash
+# 合并所有 GPU 的 raw CSV 结果
+head -1 outputs/gpu0/phase_b_tuning_raw.csv > outputs/phase_b_tuning_raw.csv
+tail -n +2 -q outputs/gpu*/phase_b_tuning_raw.csv >> outputs/phase_b_tuning_raw.csv
+```
+
+> **注意**：并行运行后需手动合并 CSV 文件，summary 文件需重新生成。
