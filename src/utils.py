@@ -49,6 +49,47 @@ def set_seed(seed: int = 42) -> None:
         # torch.backends.cudnn.benchmark = False
 
 
+def set_seed_deterministic(seed: int, deterministic: bool = True) -> None:
+    """Set random seeds with optional deterministic CUDA behavior.
+    
+    Enhanced version of set_seed() that includes deterministic toggle
+    for Phase B robustness testing with multiple seeds.
+    
+    Sets seeds for:
+    - Python's random module
+    - NumPy
+    - PyTorch (CPU and CUDA)
+    - Optionally enables CUDA deterministic mode
+    
+    Args:
+        seed: Random seed value.
+        deterministic: If True, enables torch.backends.cudnn.deterministic
+                      and disables benchmark mode. May impact performance
+                      but ensures reproducibility. Default True.
+    
+    Note:
+        When deterministic=True, CUDA operations will be deterministic
+        but may be slower. This is important for Phase B where we need
+        to compare results across different seeds reliably.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        if deterministic:
+            # Enable deterministic mode for reproducibility
+            # Note: This may reduce performance
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+        else:
+            # Allow cuDNN to auto-tune for performance
+            torch.backends.cudnn.deterministic = False
+            torch.backends.cudnn.benchmark = True
+
+
 # =============================================================================
 # Device Setup
 # =============================================================================
