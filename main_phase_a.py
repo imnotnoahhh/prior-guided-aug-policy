@@ -182,16 +182,9 @@ def train_single_config(
         prefetch_factor=4 if num_workers > 0 else None,
     )
     
-    # Create model with torch.compile optimization
+    # Create model
     model = create_model(num_classes=100, pretrained=False)
     model = model.to(device)
-    
-    # Apply torch.compile for faster training (PyTorch 2.0+)
-    if hasattr(torch, "compile") and use_cuda:
-        try:
-            model = torch.compile(model)
-        except Exception:
-            pass  # Fallback to eager mode silently
     
     # Loss function
     criterion = nn.CrossEntropyLoss()
@@ -210,8 +203,9 @@ def train_single_config(
     if device.type == "cuda":
         scaler = torch.amp.GradScaler()
     
-    # Early stopping
-    early_stopper = EarlyStopping(patience=early_stop_patience, mode="min")
+    # Early stopping with grace period (ASHA-style, per research plan)
+    # Grace period = 40 means no early stopping before epoch 40
+    early_stopper = EarlyStopping(patience=early_stop_patience, mode="min", grace_period=40)
     
     # Training loop - track all metrics
     best_val_acc = 0.0
@@ -253,8 +247,8 @@ def train_single_config(
         # Step scheduler
         scheduler.step()
         
-        # Early stopping check
-        if early_stopper(val_loss):
+        # Early stopping check (with grace period)
+        if early_stopper(val_loss, epoch):
             result["epochs_run"] = epoch + 1
             early_stopped = True
             break
