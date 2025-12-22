@@ -31,6 +31,9 @@
 python run_baseline.py | tee logs/baseline_result.log
 ```
 
+> **注意**: `run_baseline.py` 无命令行参数，使用硬编码设置：
+> epochs=200, batch_size=64, lr=0.05, wd=1e-3, early_stop_patience=5, seed=42, fold_idx=0
+
 ### Phase A 筛选
 
 ```bash
@@ -42,6 +45,16 @@ nohup python main_phase_a.py > logs/phase_a_full.log 2>&1 &
 
 # 或前台运行（可实时查看）
 python main_phase_a.py | tee logs/phase_a_full.log
+
+# 完整参数版本 (如需自定义)
+# python main_phase_a.py \
+#     --epochs 200 \             # 默认值
+#     --n_samples 32 \           # 默认值，每个 op 的 Sobol 采样数
+#     --fold_idx 0 \             # 默认值
+#     --output_dir outputs \     # 默认值
+#     --seed 42 \                # 默认值
+#     --num_workers 6 \          # 默认值
+#     --early_stop_patience 5    # 默认值
 ```
 
 ---
@@ -74,23 +87,30 @@ python main_phase_a.py | tee logs/phase_a_full.log
 # 冒烟测试 (先验证环境)
 bash scripts/smoke_test_phase_b.sh
 
-# 完整运行 (后台执行)
-nohup python main_phase_b.py \
-    --epochs 200 \
-    --seeds 42,123,456 \
-    --output_dir outputs \
-    --early_stop_patience 5 \
-    --fold_idx 0 \
-    --deterministic \
-    > logs/phase_b_full.log 2>&1 &
+# 完整运行 (后台执行，使用默认参数)
+nohup python main_phase_b.py --deterministic > logs/phase_b_full.log 2>&1 &
 
 # 或前台运行
-python main_phase_b.py \
-    --epochs 200 \
-    --seeds 42,123,456 \
-    --output_dir outputs \
-    --deterministic \
-    | tee logs/phase_b_full.log
+python main_phase_b.py --deterministic | tee logs/phase_b_full.log
+
+# 完整参数版本 (如需自定义)
+# python main_phase_b.py \
+#     --epochs 200 \                               # 默认值
+#     --seeds 42,123,456 \                         # 默认值
+#     --output_dir outputs \                       # 默认值
+#     --phase_a_csv outputs/phase_a_results.csv \  # 默认值
+#     --baseline_csv outputs/baseline_result.csv \ # 默认值
+#     --fold_idx 0 \                               # 默认值
+#     --num_workers 6 \                            # 默认值
+#     --early_stop_patience 5 \                    # 默认值
+#     --top_k 4 \                                  # 默认值，每个 op 取 Top-K 配置作为网格中心
+#     --grid_step 0.05 \                           # 默认值，网格步长
+#     --grid_n_steps 2 \                           # 默认值，每个方向的步数
+#     --deterministic                              # 推荐开启，保证可复现
+#
+# 调试参数 (可选):
+#     --ops ColorJitter,Brightness \               # 仅调优指定的 ops
+#     --dry_run                                    # 仅运行少量配置用于测试
 ```
 
 ### 输入文件
