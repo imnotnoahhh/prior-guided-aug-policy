@@ -275,20 +275,25 @@ def evaluate(
 # =============================================================================
 
 class EarlyStopping:
-    """Early stopping based on validation loss.
+    """Early stopping based on validation loss with grace period.
     
-    Stops training if validation loss doesn't improve for `patience` epochs.
+    Stops training if validation loss doesn't improve for `patience` epochs,
+    but only starts checking after `grace_period` epochs have passed.
+    
+    This implements ASHA-style early stopping where we give the model
+    a minimum number of epochs to train before considering early stopping.
     
     Args:
         patience: Number of epochs to wait before stopping. Default 5.
         min_delta: Minimum improvement to reset counter. Default 0.0.
         mode: 'min' for loss (lower is better), 'max' for accuracy. Default 'min'.
+        grace_period: Minimum epochs before early stopping is considered. Default 40.
         
     Example:
-        early_stopper = EarlyStopping(patience=5)
+        early_stopper = EarlyStopping(patience=5, grace_period=40)
         for epoch in range(max_epochs):
             val_loss = evaluate(...)
-            if early_stopper(val_loss):
+            if early_stopper(val_loss, epoch):
                 print("Early stopping triggered!")
                 break
     """
@@ -298,6 +303,7 @@ class EarlyStopping:
         patience: int = 5,
         min_delta: float = 0.0,
         mode: str = "min",
+        grace_period: int = 40,
     ) -> None:
         if mode not in ("min", "max"):
             raise ValueError(f"mode must be 'min' or 'max', got {mode}")
@@ -305,19 +311,22 @@ class EarlyStopping:
         self.patience = patience
         self.min_delta = min_delta
         self.mode = mode
+        self.grace_period = grace_period
         self.counter = 0
         self.best_value = float("inf") if mode == "min" else float("-inf")
         self.early_stop = False
     
-    def __call__(self, value: float) -> bool:
+    def __call__(self, value: float, epoch: int = None) -> bool:
         """Check if training should stop.
         
         Args:
             value: Current validation metric (loss or accuracy).
+            epoch: Current epoch (0-indexed). If provided, grace period is enforced.
             
         Returns:
             True if training should stop, False otherwise.
         """
+        # Always track best value
         if self.mode == "min":
             improved = value < (self.best_value - self.min_delta)
         else:
@@ -328,8 +337,13 @@ class EarlyStopping:
             self.counter = 0
         else:
             self.counter += 1
-            if self.counter >= self.patience:
-                self.early_stop = True
+        
+        # Only consider stopping after grace period
+        if epoch is not None and epoch < self.grace_period:
+            return False
+        
+        if self.counter >= self.patience:
+            self.early_stop = True
         
         return self.early_stop
     
