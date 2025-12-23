@@ -5,9 +5,15 @@ Augmentation Module for Prior-Guided Augmentation Policy Search.
 Implements:
 - S0 Baseline: RandomCrop(padding=4) + RandomHorizontalFlip(p=0.5)
 - Candidate Pool: 8 operations with magnitude [0,1] to physical parameter mapping
+- Probabilistic application: each operation can be applied with probability p
 - Mutual exclusion handling for conflicting operations
 
-Reference: docs/research_plan_v4.md Section 2
+Reference: docs/research_plan_v5.md Section 2
+
+Changelog (v4 → v5):
+- [NEW] ProbabilisticTransform: wrapper for stochastic application
+- [NEW] OP_SEARCH_SPACE: per-operation (m, p) search ranges
+- [CHANGED] build_transform_with_op: now accepts probability parameter
 """
 
 from typing import Callable, Dict, List, Optional, Tuple, Union
@@ -16,6 +22,85 @@ import torch
 import torch.nn as nn
 from torchvision import transforms
 from PIL import Image
+
+
+# =============================================================================
+# v5 NEW: Per-Operation Search Space Configuration
+# =============================================================================
+
+# Per-operation search space configuration
+# Each operation has customized (magnitude, probability) search ranges.
+# This embodies prior knowledge about which operations are "destructive" vs "mild".
+# Format: {"op_name": {"m": [min, max], "p": [min, max]}}
+# Reference: research_plan_v5.md Section 2.2
+#
+# NOTE: RandomGrayscale is binary (full grayscale or none), so magnitude has no effect.
+#       We set m to a fixed value [0.5, 0.5] to avoid wasting search budget.
+
+OP_SEARCH_SPACE: Dict[str, Dict[str, List[float]]] = {
+    # Mild operations - can use higher probability
+    "ColorJitter":       {"m": [0.1, 0.8], "p": [0.2, 0.8]},
+    "RandomGrayscale":   {"m": [0.5, 0.5], "p": [0.1, 0.6]},  # m fixed, only search p
+    "GaussianNoise":     {"m": [0.05, 0.5], "p": [0.2, 0.8]},
+    
+    # Medium operations
+    "RandomResizedCrop": {"m": [0.3, 0.9], "p": [0.3, 0.8]},
+    "RandomRotation":    {"m": [0.0, 0.4], "p": [0.2, 0.6]},
+    "GaussianBlur":      {"m": [0.0, 0.3], "p": [0.2, 0.6]},
+    
+    # Destructive operations - need lower probability
+    "RandomErasing":     {"m": [0.05, 0.3], "p": [0.1, 0.4]},
+    "RandomPerspective": {"m": [0.0, 0.3], "p": [0.1, 0.5]},
+}
+
+
+# =============================================================================
+# v5 NEW: Probabilistic Transform Wrapper
+# =============================================================================
+
+class ProbabilisticTransform(nn.Module):
+    """Wrapper that applies a transform with a given probability.
+    
+    This enables stochastic application of augmentations, which is crucial
+    for low-data regimes where 100% application may be too aggressive.
+    
+    Args:
+        transform: The underlying transform to apply.
+        p: Probability of applying the transform. Default 1.0 (always apply).
+    
+    Example:
+        >>> jitter = transforms.ColorJitter(brightness=0.5)
+        >>> prob_jitter = ProbabilisticTransform(jitter, p=0.5)
+        >>> # Now jitter is applied only 50% of the time
+    """
+    
+    def __init__(self, transform: Callable, p: float = 1.0) -> None:
+        super().__init__()
+        self.transform = transform
+        self.p = p
+        
+        if not 0.0 <= p <= 1.0:
+            raise ValueError(f"Probability must be in [0, 1], got {p}")
+    
+    def forward(self, img):
+        """Apply transform with probability p.
+        
+        Args:
+            img: Input image (PIL or Tensor, depending on wrapped transform).
+            
+        Returns:
+            Transformed image if random < p, else original image.
+        """
+        if self.p >= 1.0:
+            return self.transform(img)
+        if self.p <= 0.0:
+            return img
+        if torch.rand(1).item() < self.p:
+            return self.transform(img)
+        return img
+    
+    def __repr__(self) -> str:
+        return f"ProbabilisticTransform(p={self.p}, transform={self.transform})"
 
 
 # =============================================================================
@@ -94,6 +179,28 @@ class AugmentationSpace:
     def get_available_ops() -> List[str]:
         """Return list of available operation names."""
         return list(AugmentationSpace.OPERATIONS.keys())
+    
+    @staticmethod
+    def get_search_space(op_name: str) -> Dict[str, List[float]]:
+        """Get the (m, p) search space for a given operation.
+        
+        v5 NEW: Returns customized search ranges per operation.
+        
+        Args:
+            op_name: Name of the operation.
+            
+        Returns:
+            Dict with 'm' and 'p' keys, each containing [min, max].
+            
+        Raises:
+            ValueError: If op_name is not recognized.
+        """
+        if op_name not in OP_SEARCH_SPACE:
+            raise ValueError(
+                f"Unknown operation: {op_name}. "
+                f"Available: {list(OP_SEARCH_SPACE.keys())}"
+            )
+        return OP_SEARCH_SPACE[op_name]
     
     @staticmethod
     def is_mutually_exclusive(op1: str, op2: str) -> bool:
@@ -252,8 +359,10 @@ def create_op_transform(op_name: str, magnitude: float) -> Callable:
         )
     
     elif op_name == "RandomGrayscale":
-        p = params["p"]
-        return transforms.RandomGrayscale(p=p)
+        # v5 FIX: RandomGrayscale's internal p is now always 1.0
+        # The application probability is controlled by ProbabilisticTransform wrapper
+        # magnitude has no effect on this op (grayscale is binary: full or none)
+        return transforms.RandomGrayscale(p=1.0)
     
     elif op_name == "GaussianBlur":
         sigma = params["sigma"]
@@ -310,10 +419,13 @@ def apply_single_op(
 def build_transform_with_op(
     op_name: str,
     magnitude: float,
+    probability: float = 1.0,
     include_baseline: bool = True,
     include_normalize: bool = False,
 ) -> transforms.Compose:
     """Build complete transform pipeline with S0 + single candidate op.
+    
+    v5 CHANGED: Added probability parameter for stochastic application.
     
     Handles mutual exclusion:
     - If op_name == "RandomResizedCrop": skip S0's RandomCrop (use RRC instead)
@@ -327,6 +439,7 @@ def build_transform_with_op(
     Args:
         op_name: Name of the candidate operation to add.
         magnitude: Strength in [0, 1].
+        probability: Probability of applying the op (default 1.0 = always).
         include_baseline: If True, include S0 baseline transforms.
         include_normalize: If True, add normalization at the end.
         
@@ -356,8 +469,12 @@ def build_transform_with_op(
             pil_transforms.append(transforms.RandomCrop(32, padding=4))
             pil_transforms.append(transforms.RandomHorizontalFlip(p=0.5))
     
-    # Add candidate operation
+    # Add candidate operation with probability wrapper
     op_transform = create_op_transform(op_name, magnitude)
+    
+    # v5: Wrap with ProbabilisticTransform if probability < 1.0
+    if probability < 1.0:
+        op_transform = ProbabilisticTransform(op_transform, p=probability)
     
     if op_name in PIL_OPS:
         # Insert PIL op before ToTensor
@@ -461,8 +578,59 @@ if __name__ == "__main__":
     assert not AugmentationSpace.is_mutually_exclusive("ColorJitter", "GaussianBlur")
     print("      ✓ Mutual exclusion detection works")
     
+    # v5: Test ProbabilisticTransform
+    print("\n[v5-1] Testing ProbabilisticTransform wrapper...")
+    # Test p=0: should never apply
+    dummy_transform = transforms.Lambda(lambda x: x * 2)
+    prob_never = ProbabilisticTransform(dummy_transform, p=0.0)
+    test_tensor = torch.ones(3, 32, 32)
+    result = prob_never(test_tensor)
+    assert torch.equal(result, test_tensor), "p=0 should never apply transform"
+    print("      ✓ p=0.0 works (never applies)")
+    
+    # Test p=1: should always apply
+    prob_always = ProbabilisticTransform(dummy_transform, p=1.0)
+    result = prob_always(test_tensor)
+    assert torch.equal(result, test_tensor * 2), "p=1 should always apply transform"
+    print("      ✓ p=1.0 works (always applies)")
+    
+    # Test p=0.5: statistical test
+    prob_half = ProbabilisticTransform(dummy_transform, p=0.5)
+    applied_count = 0
+    n_trials = 1000
+    for _ in range(n_trials):
+        result = prob_half(test_tensor)
+        if torch.equal(result, test_tensor * 2):
+            applied_count += 1
+    ratio = applied_count / n_trials
+    assert 0.4 < ratio < 0.6, f"p=0.5 should apply ~50%, got {ratio:.2%}"
+    print(f"      ✓ p=0.5 works (applied {ratio:.1%} of {n_trials} trials)")
+    
+    # v5: Test OP_SEARCH_SPACE
+    print("\n[v5-2] Testing OP_SEARCH_SPACE configuration...")
+    for op_name in AugmentationSpace.get_available_ops():
+        space = AugmentationSpace.get_search_space(op_name)
+        assert "m" in space, f"{op_name} missing 'm' range"
+        assert "p" in space, f"{op_name} missing 'p' range"
+        m_min, m_max = space["m"]
+        p_min, p_max = space["p"]
+        assert 0 <= m_min <= m_max <= 1, f"{op_name} invalid m range: {space['m']}"
+        assert 0 <= p_min <= p_max <= 1, f"{op_name} invalid p range: {space['p']}"
+        print(f"      {op_name}: m=[{m_min:.2f}, {m_max:.2f}], p=[{p_min:.2f}, {p_max:.2f}]")
+    print("      ✓ All operations have valid search spaces")
+    
+    # v5: Test build_transform_with_op with probability
+    print("\n[v5-3] Testing build_transform_with_op with probability...")
+    for op_name in AugmentationSpace.get_available_ops():
+        transform = build_transform_with_op(op_name, magnitude=0.5, probability=0.5)
+        result = transform(pil_img)
+        assert result.shape == (3, 32, 32), \
+            f"{op_name}: Expected shape (3, 32, 32), got {result.shape}"
+        print(f"      {op_name}: ✓ (with p=0.5)")
+    print("      ✓ All pipelines work with probability parameter")
+    
     print("\n" + "=" * 60)
-    print("SUCCESS: Augmentation logic check passed.")
+    print("SUCCESS: Augmentation logic check passed (v5 features included).")
     print("=" * 60)
     
     sys.exit(0)

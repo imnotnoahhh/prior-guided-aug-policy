@@ -1,11 +1,19 @@
-# Phase A: Screening - Single operation evaluation with Sobol sampling
+# Phase A: Screening - Single operation evaluation with 2D Sobol sampling
 """
 Phase A: Augmentation Screening Script.
 
-Evaluates each candidate augmentation operation with Sobol-sampled magnitudes.
+v5 CHANGED: 2D Sobol sampling in (magnitude, probability) space.
+
+Evaluates each candidate augmentation operation with Sobol-sampled (m, p) pairs.
+Each operation uses customized search ranges from OP_SEARCH_SPACE.
 Logs results to CSV for subsequent analysis.
 
-Reference: docs/research_plan_v4.md Section 3 (Phase A)
+Reference: docs/research_plan_v5.md Section 3 (Phase A)
+
+Changelog (v4 → v5):
+- [CHANGED] Sobol sampling: 1D (magnitude) → 2D (magnitude, probability)
+- [NEW] Per-operation search space from OP_SEARCH_SPACE
+- [CHANGED] CSV output includes actual probability values
 
 Usage:
     # Full run (200 epochs, 32 samples per op)
@@ -35,7 +43,12 @@ from tqdm import tqdm
 PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.augmentations import AugmentationSpace, build_transform_with_op, get_val_transform
+from src.augmentations import (
+    AugmentationSpace,
+    OP_SEARCH_SPACE,
+    build_transform_with_op,
+    get_val_transform,
+)
 from src.dataset import CIFAR100Subsampled
 from src.models import create_model
 from src.utils import (
@@ -50,29 +63,56 @@ from src.utils import (
 
 
 # =============================================================================
-# Sobol Sampling
+# 2D Sobol Sampling (v5)
 # =============================================================================
 
-def generate_sobol_samples(n_samples: int, seed: int = 42) -> np.ndarray:
-    """Generate Sobol sequence samples in [0, 1].
+def generate_sobol_samples_2d(
+    n_samples: int,
+    m_range: Tuple[float, float],
+    p_range: Tuple[float, float],
+    seed: int = 42,
+) -> np.ndarray:
+    """Generate 2D Sobol sequence samples for (magnitude, probability).
+    
+    v5 NEW: 2D sampling in (m, p) space with per-operation ranges.
     
     Sobol sequences provide better coverage than random sampling
     for low-dimensional parameter spaces.
     
     Args:
         n_samples: Number of samples to generate.
+        m_range: (min, max) for magnitude.
+        p_range: (min, max) for probability.
         seed: Random seed for scrambling.
         
     Returns:
-        Array of shape (n_samples,) with values in [0, 1].
+        Array of shape (n_samples, 2) where [:, 0] is magnitude, [:, 1] is probability.
     """
     from scipy.stats.qmc import Sobol
     
-    # Sobol sampler for 1D (magnitude only)
-    sampler = Sobol(d=1, scramble=True, seed=seed)
-    samples = sampler.random(n_samples).flatten()
+    # Sobol sampler for 2D (magnitude, probability)
+    sampler = Sobol(d=2, scramble=True, seed=seed)
+    samples = sampler.random(n_samples)  # Shape: (n_samples, 2) in [0, 1]
+    
+    # Scale to actual ranges
+    m_min, m_max = m_range
+    p_min, p_max = p_range
+    
+    samples[:, 0] = m_min + samples[:, 0] * (m_max - m_min)  # magnitude
+    samples[:, 1] = p_min + samples[:, 1] * (p_max - p_min)  # probability
     
     return samples
+
+
+# Legacy function for backward compatibility
+def generate_sobol_samples(n_samples: int, seed: int = 42) -> np.ndarray:
+    """Generate 1D Sobol sequence samples in [0, 1] (legacy).
+    
+    DEPRECATED: Use generate_sobol_samples_2d for v5 experiments.
+    """
+    from scipy.stats.qmc import Sobol
+    sampler = Sobol(d=1, scramble=True, seed=seed)
+    return sampler.random(n_samples).flatten()
 
 
 # =============================================================================
@@ -82,6 +122,7 @@ def generate_sobol_samples(n_samples: int, seed: int = 42) -> np.ndarray:
 def train_single_config(
     op_name: str,
     magnitude: float,
+    probability: float,
     epochs: int,
     device: torch.device,
     fold_idx: int = 0,
@@ -93,9 +134,12 @@ def train_single_config(
 ) -> Dict:
     """Train one configuration and return metrics.
     
+    v5 CHANGED: Added probability parameter for stochastic application.
+    
     Args:
         op_name: Name of the augmentation operation.
         magnitude: Magnitude value in [0, 1].
+        probability: Probability of applying the augmentation.
         epochs: Number of training epochs.
         device: Device to train on.
         fold_idx: Which fold to use (default 0 for search).
@@ -111,12 +155,12 @@ def train_single_config(
     start_time = time.time()
     set_seed_deterministic(seed, deterministic=deterministic)
     
-    # Initialize result with unified format
+    # Initialize result with unified format (v5: actual probability value)
     result = {
         "phase": "PhaseA",
         "op_name": op_name,
-        "magnitude": str(magnitude),
-        "probability": "1.0",
+        "magnitude": str(round(magnitude, 4)),
+        "probability": str(round(probability, 4)),
         "seed": seed,
         "fold_idx": fold_idx,
         "val_acc": -1.0,
@@ -132,10 +176,11 @@ def train_single_config(
         "error": "",
     }
     
-    # Build transforms
+    # Build transforms (v5: with probability)
     train_transform = build_transform_with_op(
         op_name=op_name,
         magnitude=magnitude,
+        probability=probability,
         include_baseline=True,
         include_normalize=False,  # Keep in [0, 1] for augmentations
     )
@@ -424,7 +469,8 @@ def main() -> int:
     print(f"Early stop patience: {args.early_stop_patience}")
     print(f"Output dir: {args.output_dir}")
     print("-" * 70)
-    print(f"Sobol samples per op: {args.n_samples}")
+    print(f"v5: 2D Sobol samples per op: {args.n_samples}")
+    print(f"Search space: (magnitude, probability) from OP_SEARCH_SPACE")
     print("=" * 70)
     
     # Output path
@@ -453,16 +499,30 @@ def main() -> int:
     print(f"Operations to evaluate: {len(ops)}")
     print(f"Operations: {ops}")
     
-    # Generate Sobol samples for magnitudes
-    magnitudes = generate_sobol_samples(args.n_samples, seed=args.seed)
-    print(f"Magnitude samples: {magnitudes[:5]}... (total: {len(magnitudes)})")
-    
-    # Build list of all configurations
-    # For dry run (n_samples=2), just pick first 2 configs total
+    # v5: Generate 2D Sobol samples for each operation with customized ranges
     configs = []
+    print(f"\nGenerating {args.n_samples} Sobol samples per operation...")
+    
     for op_name in ops:
-        for mag in magnitudes:
-            configs.append((op_name, float(mag)))
+        # Get per-operation search space
+        space = OP_SEARCH_SPACE[op_name]
+        m_range = tuple(space["m"])
+        p_range = tuple(space["p"])
+        
+        # Generate 2D Sobol samples for this operation
+        samples = generate_sobol_samples_2d(
+            n_samples=args.n_samples,
+            m_range=m_range,
+            p_range=p_range,
+            seed=args.seed,
+        )
+        
+        # Add to configs: (op_name, magnitude, probability)
+        for i in range(len(samples)):
+            mag, prob = samples[i, 0], samples[i, 1]
+            configs.append((op_name, float(mag), float(prob)))
+        
+        print(f"  {op_name}: m∈{m_range}, p∈{p_range} → {len(samples)} samples")
     
     # Limit configs for dry run
     if args.n_samples <= 2:
@@ -477,12 +537,14 @@ def main() -> int:
     error_count = 0
     total_start_time = time.time()
     
-    for op_name, magnitude in tqdm(configs, desc="Phase A Screening", unit="config"):
+    # v5: configs are now (op_name, magnitude, probability) tuples
+    for op_name, magnitude, probability in tqdm(configs, desc="Phase A Screening", unit="config"):
         try:
             # Train and evaluate this configuration
             result = train_single_config(
                 op_name=op_name,
                 magnitude=magnitude,
+                probability=probability,
                 epochs=args.epochs,
                 device=device,
                 fold_idx=args.fold_idx,
@@ -495,14 +557,14 @@ def main() -> int:
         except Exception as e:
             # Log error but continue
             error_msg = f"{type(e).__name__}: {str(e)}"
-            print(f"\nERROR in {op_name} (m={magnitude:.4f}): {error_msg}")
+            print(f"\nERROR in {op_name} (m={magnitude:.4f}, p={probability:.4f}): {error_msg}")
             traceback.print_exc()
             
             result = {
                 "phase": "PhaseA",
                 "op_name": op_name,
-                "magnitude": str(magnitude),
-                "probability": "1.0",
+                "magnitude": str(round(magnitude, 4)),
+                "probability": str(round(probability, 4)),
                 "seed": args.seed,
                 "fold_idx": args.fold_idx,
                 "val_acc": -1.0,
@@ -532,6 +594,7 @@ def main() -> int:
     print(f"Successful: {success_count}")
     print(f"Failed: {error_count}")
     print(f"Total runtime: {total_runtime:.1f}s ({total_runtime/60:.1f}min)")
+    print(f"Estimated per-config time: {total_runtime/max(success_count+error_count, 1):.1f}s")
     print("-" * 70)
     print(f"Results saved to: {csv_path}")
     print("=" * 70)

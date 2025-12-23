@@ -1,12 +1,20 @@
-# Phase B: Tuning - Grid search around Top-4 configurations with 3-seed robustness
+# Phase B: Tuning - 2D Grid search in (m, p) space with 3-seed robustness
 """
 Phase B: Augmentation Tuning Script.
 
-Performs grid search around Top-4 configurations from Phase A for each promoted op.
+v5 CHANGED: 2D Grid Search in (magnitude, probability) space.
+
+Performs 5×5 grid search around best (m*, p*) from Phase A for each promoted op.
 Runs 3 random seeds per parameter point for robustness.
 Outputs results sorted by Mean Validation Accuracy.
 
-Reference: docs/research_plan_v4.md Section 3 (Phase B)
+Reference: docs/research_plan_v5.md Section 3 (Phase B)
+
+Changelog (v4 → v5):
+- [CHANGED] Grid search: 1D (magnitude) → 2D (magnitude, probability)
+- [CHANGED] Top-K selection: returns (m, p) pairs instead of just m
+- [NEW] Uses OP_SEARCH_SPACE for boundary clamping
+- [CHANGED] CSV output includes actual probability values
 
 Usage:
     # Full run (200 epochs, 3 seeds)
@@ -37,7 +45,12 @@ from tqdm import tqdm
 PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.augmentations import AugmentationSpace, build_transform_with_op, get_val_transform
+from src.augmentations import (
+    AugmentationSpace,
+    OP_SEARCH_SPACE,
+    build_transform_with_op,
+    get_val_transform,
+)
 from src.dataset import CIFAR100Subsampled
 from src.models import create_model
 from src.utils import (
@@ -157,15 +170,17 @@ def get_promoted_ops(
 
 
 # =============================================================================
-# Top-K Configuration Selection
+# Top-K Configuration Selection (v5: returns (m, p) pairs)
 # =============================================================================
 
 def get_top_k_configs(
     phase_a_df: pd.DataFrame,
     op_name: str,
     k: int = 4,
-) -> List[float]:
-    """Get top-K magnitude values for an operation from Phase A.
+) -> List[Tuple[float, float]]:
+    """Get top-K (magnitude, probability) pairs for an operation from Phase A.
+    
+    v5 CHANGED: Returns (m, p) pairs instead of just magnitude.
     
     Selects the K configurations with highest val_acc for the given op.
     
@@ -175,61 +190,101 @@ def get_top_k_configs(
         k: Number of top configurations to return. Default 4.
         
     Returns:
-        List of magnitude values (centers for grid search).
+        List of (magnitude, probability) tuples (centers for 2D grid search).
     """
     op_data = phase_a_df[phase_a_df["op_name"] == op_name].copy()
     op_data = op_data.sort_values("val_acc", ascending=False)
     
-    top_k = op_data.head(k)["magnitude"].tolist()
+    top_k_rows = op_data.head(k)
+    
+    # v5: Return (m, p) pairs
+    top_k = []
+    for _, row in top_k_rows.iterrows():
+        m = float(row["magnitude"])
+        p = float(row["probability"])
+        top_k.append((m, p))
     
     return top_k
 
 
 # =============================================================================
-# Local Grid Construction
+# 2D Local Grid Construction (v5)
 # =============================================================================
 
+def build_local_grid_2d(
+    centers: List[Tuple[float, float]],
+    op_name: str,
+    m_step: float = 0.1,
+    p_step: float = 0.1,
+    n_steps: int = 2,
+) -> List[Tuple[float, float]]:
+    """Build 2D local grid around center (m, p) pairs.
+    
+    v5 NEW: 2D grid search in (magnitude, probability) space.
+    
+    For each center (m, p), generates a 5×5 grid (±2 steps in each direction).
+    Clamps to operation-specific bounds from OP_SEARCH_SPACE.
+    
+    Args:
+        centers: List of (magnitude, probability) center pairs.
+        op_name: Name of the operation (for bound clamping).
+        m_step: Step size for magnitude. Default 0.1.
+        p_step: Step size for probability. Default 0.1.
+        n_steps: Number of steps in each direction. Default 2.
+        
+    Returns:
+        List of unique (magnitude, probability) tuples within bounds.
+        
+    Example:
+        centers=[(0.5, 0.5)], m_step=0.1, p_step=0.1, n_steps=2
+        -> 5×5 = 25 points grid around (0.5, 0.5)
+    """
+    # Get operation-specific bounds
+    space = OP_SEARCH_SPACE[op_name]
+    m_min, m_max = space["m"]
+    p_min, p_max = space["p"]
+    
+    points = set()
+    
+    for m_center, p_center in centers:
+        for i in range(-n_steps, n_steps + 1):
+            for j in range(-n_steps, n_steps + 1):
+                m = m_center + i * m_step
+                p = p_center + j * p_step
+                
+                # Clamp to operation-specific bounds
+                m = max(m_min, min(m_max, m))
+                p = max(p_min, min(p_max, p))
+                
+                points.add((round(m, 4), round(p, 4)))
+    
+    return sorted(list(points))
+
+
+# Legacy function for backward compatibility
 def build_local_grid(
     centers: List[float],
     step: float = 0.05,
     n_steps: int = 2,
 ) -> List[float]:
-    """Build local grid around center magnitudes.
-    
-    For each center, generates points at ±step intervals up to n_steps away.
-    Merges all points, removes duplicates, and clamps to [0, 1].
-    
-    Args:
-        centers: List of center magnitude values.
-        step: Step size for grid. Default 0.05.
-        n_steps: Number of steps in each direction. Default 2.
-        
-    Returns:
-        Sorted list of unique magnitude values in [0, 1].
-        
-    Example:
-        centers=[0.5], step=0.05, n_steps=2
-        -> [0.4, 0.45, 0.5, 0.55, 0.6]
-    """
+    """Build 1D local grid (legacy). DEPRECATED: Use build_local_grid_2d."""
     points = set()
-    
     for center in centers:
         for i in range(-n_steps, n_steps + 1):
             point = center + i * step
-            # Clamp to [0, 1]
             point = max(0.0, min(1.0, point))
-            points.add(round(point, 4))  # Round to avoid float precision issues
-    
+            points.add(round(point, 4))
     return sorted(list(points))
 
 
 # =============================================================================
-# Single Configuration Training
+# Single Configuration Training (v5: with probability)
 # =============================================================================
 
 def train_single_config(
     op_name: str,
     magnitude: float,
+    probability: float,
     seed: int,
     epochs: int,
     device: torch.device,
@@ -241,9 +296,12 @@ def train_single_config(
 ) -> Dict:
     """Train one configuration and return metrics.
     
+    v5 CHANGED: Added probability parameter for stochastic application.
+    
     Args:
         op_name: Name of the augmentation operation.
         magnitude: Magnitude value in [0, 1].
+        probability: Probability of applying the augmentation.
         seed: Random seed for this run.
         epochs: Number of training epochs.
         device: Device to train on.
@@ -254,20 +312,19 @@ def train_single_config(
         deterministic: If True, enable deterministic CUDA mode.
         
     Returns:
-        Dict with keys: op_name, magnitude, seed, val_acc, val_loss, top5_acc,
-                        epochs_run, runtime_sec, error
+        Dict with unified CSV format fields.
     """
     start_time = time.time()
     
     # Set seed with deterministic mode
     set_seed_deterministic(seed, deterministic=deterministic)
     
-    # Initialize result with unified format
+    # Initialize result with unified format (v5: actual probability value)
     result = {
         "phase": "PhaseB",
         "op_name": op_name,
-        "magnitude": str(magnitude),
-        "probability": "1.0",
+        "magnitude": str(round(magnitude, 4)),
+        "probability": str(round(probability, 4)),
         "seed": seed,
         "fold_idx": fold_idx,
         "val_acc": -1.0,
@@ -284,10 +341,11 @@ def train_single_config(
     }
     
     try:
-        # Build transforms
+        # Build transforms (v5: with probability)
         train_transform = build_transform_with_op(
             op_name=op_name,
             magnitude=magnitude,
+            probability=probability,
             include_baseline=True,
             include_normalize=False,
         )
@@ -479,13 +537,15 @@ def check_csv_needs_header(path: Path) -> bool:
 
 
 # =============================================================================
-# Results Aggregation
+# Results Aggregation (v5: groups by (op, m, p))
 # =============================================================================
 
 def aggregate_results(raw_csv_path: Path, summary_csv_path: Path) -> pd.DataFrame:
-    """Aggregate raw results into summary with mean/std per (op, magnitude).
+    """Aggregate raw results into summary with mean/std per (op, magnitude, probability).
 
-    Groups by (op_name, magnitude) and computes:
+    v5 CHANGED: Groups by (op_name, magnitude, probability) instead of just (op_name, magnitude).
+
+    Computes:
     - mean_val_acc, std_val_acc
     - mean_top5_acc, std_top5_acc
     - mean_train_acc, std_train_acc
@@ -505,8 +565,8 @@ def aggregate_results(raw_csv_path: Path, summary_csv_path: Path) -> pd.DataFram
     # Filter out error rows
     df = df[(df["error"].isna()) | (df["error"] == "")]
 
-    # Group by (op_name, magnitude)
-    summary = df.groupby(["op_name", "magnitude"]).agg(
+    # v5: Group by (op_name, magnitude, probability)
+    summary = df.groupby(["op_name", "magnitude", "probability"]).agg(
         mean_val_acc=("val_acc", "mean"),
         std_val_acc=("val_acc", "std"),
         mean_top5_acc=("top5_acc", "mean"),
@@ -608,20 +668,30 @@ def run_phase_b_grid_search(
         print("WARNING: No promoted ops found!")
         return summary_csv_path
     
-    # Build configurations
+    # v5: Build 2D configurations
     all_configs = []
     for op_name in promoted_ops:
+        # v5: get (m, p) pairs from Phase A
         centers = get_top_k_configs(phase_a_df, op_name, k=top_k)
-        grid_points = build_local_grid(centers, step=grid_step, n_steps=grid_n_steps)
+        
+        # v5: Build 2D grid around centers
+        grid_points = build_local_grid_2d(
+            centers=centers,
+            op_name=op_name,
+            m_step=grid_step,
+            p_step=grid_step,
+            n_steps=grid_n_steps,
+        )
         
         if max_grid_points:
             grid_points = grid_points[:max_grid_points]
         
-        for mag in grid_points:
+        # v5: configs are now (op_name, magnitude, probability, seed) tuples
+        for mag, prob in grid_points:
             for seed in seeds:
-                all_configs.append((op_name, mag, seed))
+                all_configs.append((op_name, mag, prob, seed))
         
-        print(f"  {op_name}: {len(centers)} centers -> {len(grid_points)} grid points")
+        print(f"  {op_name}: {len(centers)} centers -> {len(grid_points)} grid points (2D)")
     
     total_runs = len(all_configs)
     print(f"\nTotal configurations: {total_runs}")
@@ -643,11 +713,13 @@ def run_phase_b_grid_search(
     error_count = 0
     total_start_time = time.time()
 
-    for op_name, magnitude, seed in tqdm(all_configs, desc="Phase B Tuning", unit="run"):
+    # v5: configs are now (op_name, magnitude, probability, seed) tuples
+    for op_name, magnitude, probability, seed in tqdm(all_configs, desc="Phase B Tuning", unit="run"):
         try:
             result = train_single_config(
                 op_name=op_name,
                 magnitude=magnitude,
+                probability=probability,
                 seed=seed,
                 epochs=epochs,
                 device=device,
@@ -665,14 +737,14 @@ def run_phase_b_grid_search(
                 
         except Exception as e:
             error_msg = f"{type(e).__name__}: {str(e)}"
-            print(f"\nERROR in {op_name} (m={magnitude:.4f}, seed={seed}): {error_msg}")
+            print(f"\nERROR in {op_name} (m={magnitude:.4f}, p={probability:.4f}, seed={seed}): {error_msg}")
             traceback.print_exc()
 
             result = {
                 "phase": "PhaseB",
                 "op_name": op_name,
-                "magnitude": str(magnitude),
-                "probability": "1.0",
+                "magnitude": str(round(magnitude, 4)),
+                "probability": str(round(probability, 4)),
                 "seed": seed,
                 "fold_idx": fold_idx,
                 "val_acc": -1.0,
@@ -873,7 +945,7 @@ def main() -> int:
     print(f"Phase A CSV: {args.phase_a_csv}")
     print(f"Baseline CSV: {args.baseline_csv}")
     print(f"Top-K centers: {args.top_k}")
-    print(f"Grid step: {args.grid_step}, n_steps: {args.grid_n_steps}")
+    print(f"v5: 2D Grid step: m±{args.grid_step}, p±{args.grid_step}, n_steps: {args.grid_n_steps}")
     if ops_filter:
         print(f"Ops filter: {ops_filter}")
     if args.dry_run:
