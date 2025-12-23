@@ -100,14 +100,14 @@ def load_phase_a_results(csv_path: Path) -> pd.DataFrame:
     return df
 
 
-def load_baseline_result(csv_path: Path) -> Tuple[float, float]:
+def load_baseline_result(csv_path: Path) -> Tuple[float, float, float]:
     """Load baseline result for promotion threshold calculation.
     
     Args:
         csv_path: Path to baseline_result.csv
         
     Returns:
-        Tuple of (baseline_val_acc, baseline_top5_acc)
+        Tuple of (baseline_val_acc, baseline_top5_acc, baseline_train_loss)
         
     Raises:
         FileNotFoundError: If CSV file doesn't exist.
@@ -122,8 +122,9 @@ def load_baseline_result(csv_path: Path) -> Tuple[float, float]:
     
     baseline_acc = df["val_acc"].iloc[0]
     baseline_top5 = df["top5_acc"].iloc[0]
+    baseline_train_loss = df["train_loss"].iloc[0]
     
-    return baseline_acc, baseline_top5
+    return baseline_acc, baseline_top5, baseline_train_loss
 
 
 # =============================================================================
@@ -134,14 +135,15 @@ def get_promoted_ops(
     phase_a_df: pd.DataFrame,
     baseline_acc: float,
     baseline_top5: float,
+    baseline_train_loss: float,
     delta_threshold: float = 0.5,
 ) -> List[str]:
     """Determine which ops are promoted from Phase A to Phase B.
     
-    Promotion criteria (from research_plan_v4.md):
+    Promotion criteria (from research_plan_v5.md):
     1. Top-1 Acc: Δ ≥ -0.5% (max_acc >= baseline_acc - 0.5)
     2. Top-5 Acc: Δ > 0% (max_top5 > baseline_top5)
-    3. Loss Analysis: Not implemented (no loss slope in CSV)
+    3. Loss Analysis: train_loss <= baseline_train_loss (converges at least as well)
     
     An op is promoted if ANY of the above conditions is met.
     
@@ -149,6 +151,7 @@ def get_promoted_ops(
         phase_a_df: DataFrame with Phase A results.
         baseline_acc: Baseline Top-1 accuracy.
         baseline_top5: Baseline Top-5 accuracy.
+        baseline_train_loss: Baseline training loss.
         delta_threshold: Allowed drop in Top-1 accuracy. Default 0.5%.
         
     Returns:
@@ -161,9 +164,15 @@ def get_promoted_ops(
         op_data = phase_a_df[phase_a_df["op_name"] == op_name]
         max_acc = op_data["val_acc"].max()
         max_top5 = op_data["top5_acc"].max()
+        min_train_loss = op_data["train_loss"].min()
         
-        # Promotion condition: Top-1 >= threshold OR Top-5 > baseline
-        if max_acc >= acc_threshold or max_top5 > baseline_top5:
+        # Promotion condition: ANY of the three criteria
+        # 1. Top-1 Acc: Δ ≥ -0.5%
+        # 2. Top-5 Acc: Δ > 0%
+        # 3. Loss Analysis: converges at least as well as baseline
+        if (max_acc >= acc_threshold or 
+            max_top5 > baseline_top5 or 
+            min_train_loss <= baseline_train_loss):
             promoted.append(op_name)
     
     return promoted
@@ -651,12 +660,12 @@ def run_phase_b_grid_search(
     # Load Phase A results and baseline
     print("Loading Phase A results...")
     phase_a_df = load_phase_a_results(phase_a_csv)
-    baseline_acc, baseline_top5 = load_baseline_result(baseline_csv)
+    baseline_acc, baseline_top5, baseline_train_loss = load_baseline_result(baseline_csv)
     
-    print(f"Baseline: Top-1={baseline_acc:.1f}%, Top-5={baseline_top5:.1f}%")
+    print(f"Baseline: Top-1={baseline_acc:.1f}%, Top-5={baseline_top5:.1f}%, TrainLoss={baseline_train_loss:.4f}")
     
-    # Determine promoted ops
-    promoted_ops = get_promoted_ops(phase_a_df, baseline_acc, baseline_top5)
+    # Determine promoted ops (v5: includes loss analysis criterion)
+    promoted_ops = get_promoted_ops(phase_a_df, baseline_acc, baseline_top5, baseline_train_loss)
     print(f"Promoted ops ({len(promoted_ops)}): {promoted_ops}")
     
     # Filter ops if specified
@@ -872,8 +881,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--grid_step",
         type=float,
-        default=0.05,
-        help="Step size for local grid (default: 0.05)"
+        default=0.1,
+        help="Step size for 2D grid in m and p (default: 0.1)"
     )
     
     parser.add_argument(

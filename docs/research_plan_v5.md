@@ -66,7 +66,7 @@ v4 实验发现：
 | **RandomRotation** | [0.0, 0.4] | [0.2, 0.6] | 中等 | **互斥**: 与 Perspective 二选一 |
 | **RandomPerspective** | [0.0, 0.3] | [0.1, 0.5] | 破坏性 | **互斥**: 与 Rotation 二选一 |
 | **ColorJitter** | [0.1, 0.8] | [0.2, 0.8] | 温和 | b/c/s 同步变化 |
-| **RandomGrayscale** | [0.1, 0.8] | [0.2, 0.8] | 温和 | m 控制内部概率 |
+| **RandomGrayscale** | [0.5, 0.5] | [0.1, 0.6] | 温和 | m 固定，只搜 p |
 | **GaussianBlur** | [0.0, 0.3] | [0.2, 0.6] | 中等 | sigma ∈ [0.1, 2.0] |
 | **RandomErasing** | [0.05, 0.3] | [0.1, 0.4] | 破坏性 | 需低 p，放在 Tensor 后 |
 | **GaussianNoise** | [0.05, 0.5] | [0.2, 0.8] | 温和 | 需 `torch.clamp` |
@@ -78,7 +78,7 @@ OP_SEARCH_SPACE = {
     "RandomRotation":    {"m": [0.0, 0.4], "p": [0.2, 0.6]},
     "RandomPerspective": {"m": [0.0, 0.3], "p": [0.1, 0.5]},
     "ColorJitter":       {"m": [0.1, 0.8], "p": [0.2, 0.8]},
-    "RandomGrayscale":   {"m": [0.1, 0.8], "p": [0.2, 0.8]},
+    "RandomGrayscale":   {"m": [0.5, 0.5], "p": [0.1, 0.6]},  # m固定，只搜p
     "GaussianBlur":      {"m": [0.0, 0.3], "p": [0.2, 0.6]},
     "RandomErasing":     {"m": [0.05, 0.3], "p": [0.1, 0.4]},
     "GaussianNoise":     {"m": [0.05, 0.5], "p": [0.2, 0.8]},
@@ -103,16 +103,16 @@ OP_SEARCH_SPACE = {
     满足以下任一条件即可晋级：
     1.  **Top-1 Acc**: $\Delta \ge -0.5\%$ (允许轻微掉点)。
     2.  **Top-5 Acc**: $\Delta > 0\%$。
-    3.  **Loss Analysis**: 训练 Loss 收敛速度快于 Baseline。
+    3.  **Loss Analysis**: `min(train_loss) <= baseline_train_loss` (收敛不差于 Baseline)。
 
 ### 阶段 B：深度微调 (Tuning) — **v5 更新**
 *目标：在 (m, p) 空间精细搜索最佳参数。*
 
 * **配置**:
     * **Input**: 阶段 A 晋级的 Ops。
-    * **Search**: **5×5 Grid Search** in $(m, p)$ space (Phase A 最佳点 ±20%)
+    * **Search**: **5×5 Grid Search** in $(m, p)$ space (步长 0.1，以 Top-K centers 为中心 ±0.2)
     * **Robustness Check**: 每个参数跑 **3 个 Random Seeds**。
-* **实验量**: 4 ops × 25 点 × 3 seeds = **300 组**
+* **实验量**: ~promoted_ops × ~50 点 × 3 seeds（去重后实际点数）
 * **预计时间**: ~1.5h (4 GPU 并行)
 * **输出**: 按 `Mean Validation Acc` 排序的 $(Op, m^*, p^*)$ 列表。
 
@@ -141,10 +141,12 @@ OP_SEARCH_SPACE = {
 
 ### 4.1 数据文件结构
 * `archive_p100/` - v4 实验数据 (p=1.0 固定)
+* `outputs/baseline_result.csv` - Baseline 结果
 * `outputs/phase_a_results.csv` - v5 Phase A 结果 (m, p 联合搜索)
-* `outputs/phase_b_results.csv` - v5 Phase B 结果
-* `results/phase_c_history.csv` - 组合搜索历史
-* `results/final_test_5folds.csv` - 最终 5-fold 测试结果
+* `outputs/phase_b_tuning_raw.csv` - v5 Phase B 原始结果 (每个 seed)
+* `outputs/phase_b_tuning_summary.csv` - v5 Phase B 汇总结果 (mean ± std)
+* `results/phase_c_history.csv` - 组合搜索历史 (待实现)
+* `results/final_test_5folds.csv` - 最终 5-fold 测试结果 (待实现)
 
 ### 4.2 论文核心图表 (Paper Figures) — **v5 更新**
 1.  **The Performance Table**: Ours vs. RandAugment vs. Baseline (Mean ± Std)。

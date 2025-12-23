@@ -36,8 +36,8 @@ phase, op_name, magnitude, probability, seed, fold_idx, val_acc, val_loss, top5_
 |------|----------|---------|---------|---------|---------|
 | phase | "Baseline" | "PhaseA" | "PhaseB" | "PhaseC" | "PhaseD" |
 | op_name | "Baseline" | 单个 op | 单个 op | "op1+op2" | "FinalPolicy" |
-| magnitude | "0.0" | 单值 | 单值 | "m1+m2" | 最终组合值 |
-| probability | "1.0" | "1.0" | "1.0" | "p1+p2" | 最终组合值 |
+| magnitude | "0.0" | Sobol采样值 | Grid采样值 | "m1+m2" | 最终组合值 |
+| probability | "1.0" | Sobol采样值 | Grid采样值 | "p1+p2" | 最终组合值 |
 | seed | 42 | 42 | 42/123/456 | 42 | 42 |
 | fold_idx | 0 | 0 | 0 | 0 | 0,1,2,3,4 |
 
