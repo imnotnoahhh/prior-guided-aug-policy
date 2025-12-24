@@ -35,11 +35,21 @@ phase, op_name, magnitude, probability, seed, fold_idx, val_acc, val_loss, top5_
 | 字段 | Baseline | Phase A | Phase B | Phase C | Phase D |
 |------|----------|---------|---------|---------|---------|
 | phase | "Baseline" | "PhaseA" | "PhaseB" | "PhaseC" | "PhaseD" |
-| op_name | "Baseline" | 单个 op | 单个 op | "op1+op2" | "FinalPolicy" |
-| magnitude | "0.0" | Sobol采样值 | Grid采样值 | "m1+m2" | 最终组合值 |
-| probability | "1.0" | Sobol采样值 | Grid采样值 | "p1+p2" | 最终组合值 |
-| seed | 42 | 42 | 42/123/456 | 42 | 42 |
+| op_name | "Baseline" | 单个 op | 单个 op | 单个或组合 "op1+op2" | 方法名* |
+| magnitude | "0.0" | Sobol采样值 | Grid采样值 | 单个或组合 "m1+m2" | 见下表 |
+| probability | "1.0" | Sobol采样值 | Grid采样值 | 单个或组合 "p1+p2" | 见下表 |
+| seed | 42 | 42 | 42/123/456 | 42/123/456 | 42 |
 | fold_idx | 0 | 0 | 0 | 0 | 0,1,2,3,4 |
+
+### Phase D 方法名与参数
+
+| 方法名 | op_name | magnitude | probability | 说明 |
+|--------|---------|-----------|-------------|------|
+| Baseline | "Baseline" | "N/A" | "N/A" | S0 基础增强 |
+| RandAugment | "RandAugment" | "N/A" | "N/A" | N=2, M=9 (标准设置) |
+| Cutout | "Cutout" | "N/A" | "N/A" | length=16 |
+| Ours_p1 | "Ours_p1" | "m1+m2+..." | "1.0+1.0+..." | 消融: 所有 p=1.0 |
+| Ours_optimal | "Ours_optimal" | "m1+m2+..." | "p1+p2+..." | 最终策略 |
 
 ## 示例数据
 

@@ -171,6 +171,7 @@ def train_single_config(
     epochs: int,
     device: torch.device,
     fold_idx: int,
+    policy: Optional[List[Tuple[str, float, float]]] = None,
     batch_size: int = 64,
     num_workers: int = 6,
     early_stop_patience: int = 5,
@@ -187,6 +188,7 @@ def train_single_config(
         epochs: Number of training epochs.
         device: Device to train on.
         fold_idx: Which fold to use.
+        policy: Optional policy for Ours methods (for CSV output).
         batch_size: Batch size.
         num_workers: Number of data loading workers.
         early_stop_patience: Early stopping patience.
@@ -200,11 +202,25 @@ def train_single_config(
     start_time = time.time()
     set_seed_deterministic(seed, deterministic=deterministic)
     
+    # Build magnitude and probability strings for CSV
+    if method_name in ["Ours_p1", "Ours_optimal"] and policy and len(policy) > 0:
+        if method_name == "Ours_p1":
+            # Ablation: all p = 1.0
+            mag_str = "+".join([str(round(op[1], 4)) for op in policy])
+            prob_str = "+".join(["1.0" for _ in policy])
+        else:
+            # Optimal: use actual p values
+            mag_str = "+".join([str(round(op[1], 4)) for op in policy])
+            prob_str = "+".join([str(round(op[2], 4)) for op in policy])
+    else:
+        mag_str = "N/A"
+        prob_str = "N/A"
+    
     result = {
         "phase": "PhaseD",
         "op_name": method_name,
-        "magnitude": "N/A",
-        "probability": "N/A",
+        "magnitude": mag_str,
+        "probability": prob_str,
         "seed": seed,
         "fold_idx": fold_idx,
         "val_acc": -1.0,
@@ -584,6 +600,7 @@ def run_phase_d(
                 epochs=train_epochs,
                 device=device,
                 fold_idx=fold_idx,
+                policy=policy,
                 num_workers=num_workers,
                 early_stop_patience=early_stop_patience,
                 deterministic=deterministic,
