@@ -116,37 +116,56 @@ OP_SEARCH_SPACE = {
 * **预计时间**: ~1.5h (4 GPU 并行)
 * **输出**: 按 `Mean Validation Acc` 排序的 $(Op, m^*, p^*)$ 列表。
 
-### 阶段 C：先验贪心组合 (Prior-Guided Ensemble)
+### 阶段 C：先验贪心组合 (Prior-Guided Ensemble) — **v5.1 修正**
 *目标：构建最终策略。*
 * **算法**:
-    1.  初始化策略 $P = S_0$。
-    2.  按阶段 B 的排名，尝试叠加 $Op_{new}(m^*, p^*)$。
-    3.  **Training**: **800 Epochs**。
-    4.  **判定**: 若 $\text{Acc}(P + Op_{new}) > \text{Acc}(P) + 0.1\%$，则更新 $P$。
-    5.  **约束**: 组合中额外操作不超过 3 个。
+    1.  初始化策略 $P = S_0$，$\text{Acc}(P) = \text{Baseline\_800ep\_acc}$。
+    2.  按阶段 B 的 `mean_val_acc` 排名，尝试叠加 $Op_{new}(m^*, p^*)$。
+    3.  **互斥检查**: 跳过与已选操作互斥的候选（如 RandomRotation ↔ RandomPerspective）。
+    4.  **Training**: **3 Random Seeds × 800 Epochs**（与 Phase B 一致，减少方差）。
+    5.  **判定**: 若 $\text{mean\_acc}(P + Op_{new}) > \text{Acc}(P) + 0.1\%$，则接受并更新 $P$。
+    6.  **约束**: 组合中额外操作不超过 3 个。
+* **实验量**: ~8 ops × 3 seeds × 800 ep（最坏情况）
+* **预计时间**: ~4h (4 GPU 并行)
+* **输出**: 
+    - `phase_c_history.csv` - 每次尝试的记录
+    - `phase_c_final_policy.json` - 最终策略定义
 
-### 阶段 D：SOTA 对比实验 (Benchmark Comparison)
+### 阶段 D：SOTA 对比实验 (Benchmark Comparison) — **v5.1 修正**
 *目标：证明你的方法比现成的 SOTA 方法更好。*
 
 在 5 个 Data Folds 上，使用同样的训练设置 (800 Epochs) 运行以下对比组：
 1.  **Baseline**: $S_0$ only.
 2.  **RandAugment**: N=2, M=9 (标准设置)。
 3.  **Cutout**: n_holes=1, length=16.
-4.  **Ours (p=1.0)**: archive_p100 的结果（消融对照）。
+4.  **Ours (p=1.0)**: 阶段 C 策略但所有 $p$ 强制为 1.0（消融对照，在 Phase D 中重新跑 5-fold）。
 5.  **Ours (p=optimal)**: 阶段 C 产出的最终策略 $P_{final}$。
+
+* **实验量**: 5 methods × 5 folds × 800 ep × 1 seed
+* **预计时间**: ~6h (4 GPU 并行)
+* **输出**:
+    - `phase_d_results.csv` - 每个 (method, fold) 的结果
+    - `phase_d_summary.csv` - Mean ± Std 汇总（用于论文表格）
+    - `checkpoints/phase_d_fold{0-4}_best.pth` - Ours_optimal 的 5-fold 模型
+
+> **注意**: v5.1 修正移除了对 `archive_p100/` 的依赖。消融实验 "Ours (p=1.0)" 在 Phase D 中重新运行，确保与其他方法使用相同的训练设置（5-fold × 800 epochs）。
 
 ---
 
 ## 4. 交付物与分析 (Deliverables & Analysis)
 
 ### 4.1 数据文件结构
-* `archive_p100/` - v4 实验数据 (p=1.0 固定)
-* `outputs/baseline_result.csv` - Baseline 结果
+* `archive_p100/` - v4 实验数据 (p=1.0 固定，用于历史对比)
+* `outputs/baseline_result.csv` - Baseline 200ep 结果
+* `outputs/baseline_800ep_result.csv` - Baseline 800ep 结果 (Phase C 生成)
 * `outputs/phase_a_results.csv` - v5 Phase A 结果 (m, p 联合搜索)
 * `outputs/phase_b_tuning_raw.csv` - v5 Phase B 原始结果 (每个 seed)
 * `outputs/phase_b_tuning_summary.csv` - v5 Phase B 汇总结果 (mean ± std)
-* `results/phase_c_history.csv` - 组合搜索历史 (待实现)
-* `results/final_test_5folds.csv` - 最终 5-fold 测试结果 (待实现)
+* `outputs/phase_c_history.csv` - Phase C 组合搜索历史
+* `outputs/phase_c_final_policy.json` - Phase C 最终策略定义
+* `outputs/phase_d_results.csv` - Phase D 原始结果 (每个 method × fold)
+* `outputs/phase_d_summary.csv` - Phase D 汇总结果 (Mean ± Std，用于论文)
+* `outputs/checkpoints/phase_d_fold{0-4}_best.pth` - 最终 5-fold 模型
 
 ### 4.2 论文核心图表 (Paper Figures) — **v5 更新**
 1.  **The Performance Table**: Ours vs. RandAugment vs. Baseline (Mean ± Std)。
