@@ -498,6 +498,283 @@ def build_transform_with_op(
 
 
 # =============================================================================
+# Phase C/D: RandAugment and Cutout (SOTA Comparison)
+# =============================================================================
+
+def get_randaugment_transform(
+    n: int = 2,
+    m: int = 9,
+    include_baseline: bool = True,
+    include_normalize: bool = False,
+) -> transforms.Compose:
+    """Create RandAugment transform pipeline for SOTA comparison.
+    
+    Uses torchvision.transforms.RandAugment with standard settings.
+    
+    Args:
+        n: Number of augmentation transformations to apply sequentially. Default 2.
+        m: Magnitude for all transformations (0-30 scale). Default 9.
+        include_baseline: If True, include S0 baseline transforms. Default True.
+        include_normalize: If True, add normalization at the end. Default False.
+        
+    Returns:
+        Composed transform pipeline.
+        
+    Reference:
+        RandAugment: Practical automated data augmentation (Cubuk et al., 2020)
+        Standard settings: N=2, M=9
+    """
+    pil_transforms = []
+    
+    # Add S0 baseline if requested
+    if include_baseline:
+        pil_transforms.append(transforms.RandomCrop(32, padding=4))
+        pil_transforms.append(transforms.RandomHorizontalFlip(p=0.5))
+    
+    # Add RandAugment
+    pil_transforms.append(transforms.RandAugment(num_ops=n, magnitude=m))
+    
+    # Build final pipeline
+    final_transforms = pil_transforms + [transforms.ToTensor()]
+    
+    if include_normalize:
+        final_transforms.append(
+            transforms.Normalize(mean=CIFAR100_MEAN, std=CIFAR100_STD)
+        )
+    
+    return transforms.Compose(final_transforms)
+
+
+def get_cutout_transform(
+    n_holes: int = 1,
+    length: int = 16,
+    include_baseline: bool = True,
+    include_normalize: bool = False,
+) -> transforms.Compose:
+    """Create Cutout transform pipeline for SOTA comparison.
+    
+    Implements Cutout using RandomErasing with square holes.
+    
+    Args:
+        n_holes: Number of holes to cut out (only 1 supported via RandomErasing). Default 1.
+        length: Side length of the square hole in pixels. Default 16.
+        include_baseline: If True, include S0 baseline transforms. Default True.
+        include_normalize: If True, add normalization at the end. Default False.
+        
+    Returns:
+        Composed transform pipeline.
+        
+    Reference:
+        Cutout: Improved Regularization of Convolutional Networks (DeVries & Taylor, 2017)
+        Standard settings for CIFAR: n_holes=1, length=16
+        
+    Note:
+        For CIFAR-100 (32x32), length=16 means scale ≈ (16/32)² = 0.25
+    """
+    pil_transforms = []
+    
+    # Add S0 baseline if requested
+    if include_baseline:
+        pil_transforms.append(transforms.RandomCrop(32, padding=4))
+        pil_transforms.append(transforms.RandomHorizontalFlip(p=0.5))
+    
+    # Calculate scale for RandomErasing to match Cutout behavior
+    # Cutout: fixed size square hole
+    # RandomErasing: scale is fraction of image area
+    # For 32x32 image, length=16 means area = 16*16 = 256, scale = 256/1024 = 0.25
+    img_size = 32
+    hole_area = (length / img_size) ** 2
+    
+    # Use RandomErasing with square ratio to simulate Cutout
+    cutout = transforms.RandomErasing(
+        p=1.0,
+        scale=(hole_area * 0.9, hole_area * 1.1),  # Slight variation around target
+        ratio=(0.9, 1.1),  # Nearly square
+        value=0,  # Black fill (original Cutout uses 0)
+    )
+    
+    # Build final pipeline
+    final_transforms = pil_transforms + [transforms.ToTensor(), cutout]
+    
+    if include_normalize:
+        final_transforms.append(
+            transforms.Normalize(mean=CIFAR100_MEAN, std=CIFAR100_STD)
+        )
+    
+    return transforms.Compose(final_transforms)
+
+
+# =============================================================================
+# Phase C: Multi-Operation Combination Builder
+# =============================================================================
+
+def check_mutual_exclusion(ops: List[str]) -> List[Tuple[str, str]]:
+    """Check for mutual exclusion conflicts in a list of operations.
+    
+    Args:
+        ops: List of operation names to check.
+        
+    Returns:
+        List of conflicting (op1, op2) pairs. Empty if no conflicts.
+        
+    Example:
+        >>> check_mutual_exclusion(["RandomRotation", "RandomPerspective"])
+        [("RandomRotation", "RandomPerspective")]
+        >>> check_mutual_exclusion(["ColorJitter", "GaussianBlur"])
+        []
+    """
+    conflicts = []
+    for i, op1 in enumerate(ops):
+        for op2 in ops[i+1:]:
+            if AugmentationSpace.is_mutually_exclusive(op1, op2):
+                conflicts.append((op1, op2))
+    return conflicts
+
+
+def get_compatible_ops(current_ops: List[str], candidate_op: str) -> bool:
+    """Check if a candidate operation is compatible with current operations.
+    
+    Args:
+        current_ops: List of already selected operation names.
+        candidate_op: The candidate operation to add.
+        
+    Returns:
+        True if candidate is compatible (no mutual exclusion), False otherwise.
+    """
+    for existing_op in current_ops:
+        if AugmentationSpace.is_mutually_exclusive(existing_op, candidate_op):
+            return False
+    return True
+
+
+def build_transform_with_ops(
+    ops: List[Tuple[str, float, float]],
+    include_baseline: bool = True,
+    include_normalize: bool = False,
+) -> transforms.Compose:
+    """Build complete transform pipeline with S0 + multiple candidate ops.
+    
+    Phase C NEW: Supports combining multiple augmentation operations.
+    
+    Handles mutual exclusion:
+    - If any op is "RandomResizedCrop": skip S0's RandomCrop
+    - Operations are applied in the order provided
+    
+    Pipeline order:
+    1. S0 baseline (if include_baseline and no RandomResizedCrop)
+    2. PIL augmentations in order
+    3. ToTensor
+    4. Tensor augmentations in order
+    5. Normalize (optional)
+    
+    Args:
+        ops: List of (op_name, magnitude, probability) tuples.
+        include_baseline: If True, include S0 baseline transforms. Default True.
+        include_normalize: If True, add normalization at the end. Default False.
+        
+    Returns:
+        Composed transform pipeline.
+        
+    Raises:
+        ValueError: If ops contain mutually exclusive operations.
+        
+    Example:
+        >>> ops = [("ColorJitter", 0.5, 0.6), ("GaussianBlur", 0.3, 0.4)]
+        >>> transform = build_transform_with_ops(ops)
+    """
+    if not ops:
+        # No extra ops, just return baseline
+        return get_baseline_transform(
+            include_normalize=include_normalize,
+            include_totensor=True,
+        )
+    
+    # Check for mutual exclusion conflicts
+    op_names = [op[0] for op in ops]
+    conflicts = check_mutual_exclusion(op_names)
+    if conflicts:
+        raise ValueError(
+            f"Mutual exclusion conflicts detected: {conflicts}. "
+            "Cannot combine these operations."
+        )
+    
+    # Operations that work on PIL images (before ToTensor)
+    PIL_OPS = {
+        "RandomResizedCrop", "RandomRotation", "RandomPerspective",
+        "ColorJitter", "RandomGrayscale", "GaussianBlur"
+    }
+    
+    # Operations that work on tensors (after ToTensor)
+    TENSOR_OPS = {"RandomErasing", "GaussianNoise"}
+    
+    pil_transforms = []
+    tensor_transforms = []
+    
+    # Check if any op is RandomResizedCrop (replaces S0's RandomCrop)
+    has_rrc = any(op[0] == "RandomResizedCrop" for op in ops)
+    
+    # Add S0 baseline if requested
+    if include_baseline:
+        if has_rrc:
+            # Skip S0's RandomCrop, only add HorizontalFlip
+            pil_transforms.append(transforms.RandomHorizontalFlip(p=0.5))
+        else:
+            # Normal S0: RandomCrop + RandomHorizontalFlip
+            pil_transforms.append(transforms.RandomCrop(32, padding=4))
+            pil_transforms.append(transforms.RandomHorizontalFlip(p=0.5))
+    
+    # Add each operation in order
+    for op_name, magnitude, probability in ops:
+        op_transform = create_op_transform(op_name, magnitude)
+        
+        # Wrap with ProbabilisticTransform if probability < 1.0
+        if probability < 1.0:
+            op_transform = ProbabilisticTransform(op_transform, p=probability)
+        
+        if op_name in PIL_OPS:
+            # For RandomResizedCrop, put it first (before HorizontalFlip)
+            if op_name == "RandomResizedCrop":
+                pil_transforms.insert(0, op_transform)
+            else:
+                pil_transforms.append(op_transform)
+        elif op_name in TENSOR_OPS:
+            tensor_transforms.append(op_transform)
+    
+    # Build final pipeline
+    final_transforms = pil_transforms + [transforms.ToTensor()] + tensor_transforms
+    
+    if include_normalize:
+        final_transforms.append(
+            transforms.Normalize(mean=CIFAR100_MEAN, std=CIFAR100_STD)
+        )
+    
+    return transforms.Compose(final_transforms)
+
+
+def build_ours_p1_transform(
+    ops: List[Tuple[str, float, float]],
+    include_baseline: bool = True,
+    include_normalize: bool = False,
+) -> transforms.Compose:
+    """Build transform with ops but force all probabilities to 1.0 (ablation).
+    
+    Phase D: Used for p=1.0 ablation comparison.
+    
+    Args:
+        ops: List of (op_name, magnitude, probability) tuples.
+             The probability values are ignored and set to 1.0.
+        include_baseline: If True, include S0 baseline transforms.
+        include_normalize: If True, add normalization at the end.
+        
+    Returns:
+        Composed transform pipeline with all ops applied at p=1.0.
+    """
+    # Override all probabilities to 1.0
+    ops_p1 = [(op_name, magnitude, 1.0) for op_name, magnitude, _ in ops]
+    return build_transform_with_ops(ops_p1, include_baseline, include_normalize)
+
+
+# =============================================================================
 # Self-Test
 # =============================================================================
 
@@ -629,8 +906,67 @@ if __name__ == "__main__":
         print(f"      {op_name}: ✓ (with p=0.5)")
     print("      ✓ All pipelines work with probability parameter")
     
+    # Phase C/D: Test RandAugment
+    print("\n[Phase C/D-1] Testing get_randaugment_transform...")
+    ra_transform = get_randaugment_transform(n=2, m=9)
+    result = ra_transform(pil_img)
+    assert result.shape == (3, 32, 32), f"RandAugment: Expected (3, 32, 32), got {result.shape}"
+    print("      ✓ RandAugment transform works")
+    
+    # Phase C/D: Test Cutout
+    print("\n[Phase C/D-2] Testing get_cutout_transform...")
+    cutout_transform = get_cutout_transform(n_holes=1, length=16)
+    result = cutout_transform(pil_img)
+    assert result.shape == (3, 32, 32), f"Cutout: Expected (3, 32, 32), got {result.shape}"
+    print("      ✓ Cutout transform works")
+    
+    # Phase C/D: Test mutual exclusion checker
+    print("\n[Phase C/D-3] Testing check_mutual_exclusion...")
+    conflicts = check_mutual_exclusion(["RandomRotation", "RandomPerspective"])
+    assert len(conflicts) == 1, f"Expected 1 conflict, got {len(conflicts)}"
+    conflicts = check_mutual_exclusion(["ColorJitter", "GaussianBlur"])
+    assert len(conflicts) == 0, f"Expected 0 conflicts, got {len(conflicts)}"
+    print("      ✓ Mutual exclusion checker works")
+    
+    # Phase C/D: Test get_compatible_ops
+    print("\n[Phase C/D-4] Testing get_compatible_ops...")
+    assert get_compatible_ops(["ColorJitter"], "GaussianBlur") == True
+    assert get_compatible_ops(["RandomRotation"], "RandomPerspective") == False
+    print("      ✓ get_compatible_ops works")
+    
+    # Phase C/D: Test build_transform_with_ops
+    print("\n[Phase C/D-5] Testing build_transform_with_ops...")
+    ops = [("ColorJitter", 0.5, 0.6), ("GaussianBlur", 0.3, 0.4)]
+    combo_transform = build_transform_with_ops(ops)
+    result = combo_transform(pil_img)
+    assert result.shape == (3, 32, 32), f"Combo: Expected (3, 32, 32), got {result.shape}"
+    print("      ✓ Multi-op combination works")
+    
+    # Test with RandomResizedCrop (mutual exclusion with S0's RandomCrop)
+    ops_rrc = [("RandomResizedCrop", 0.5, 0.7), ("ColorJitter", 0.3, 0.5)]
+    rrc_transform = build_transform_with_ops(ops_rrc)
+    result = rrc_transform(pil_img)
+    assert result.shape == (3, 32, 32), f"RRC combo: Expected (3, 32, 32), got {result.shape}"
+    print("      ✓ RandomResizedCrop combination works (replaces S0 RandomCrop)")
+    
+    # Test that conflicting ops raise error
+    try:
+        bad_ops = [("RandomRotation", 0.5, 0.5), ("RandomPerspective", 0.3, 0.3)]
+        build_transform_with_ops(bad_ops)
+        assert False, "Should have raised ValueError for conflicting ops"
+    except ValueError as e:
+        print(f"      ✓ Conflicting ops correctly rejected: {e}")
+    
+    # Phase C/D: Test build_ours_p1_transform
+    print("\n[Phase C/D-6] Testing build_ours_p1_transform...")
+    ops = [("ColorJitter", 0.5, 0.3), ("GaussianBlur", 0.2, 0.4)]
+    p1_transform = build_ours_p1_transform(ops)
+    result = p1_transform(pil_img)
+    assert result.shape == (3, 32, 32), f"Ours p=1: Expected (3, 32, 32), got {result.shape}"
+    print("      ✓ Ours p=1.0 ablation transform works")
+    
     print("\n" + "=" * 60)
-    print("SUCCESS: Augmentation logic check passed (v5 features included).")
+    print("SUCCESS: Augmentation logic check passed (v5 + Phase C/D features).")
     print("=" * 60)
     
     sys.exit(0)

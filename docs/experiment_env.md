@@ -278,6 +278,241 @@ python main_phase_b.py --grid_points 5
 
 ---
 
-## 5. Phase C/D (待实现)
+## 5. Phase C 先验贪心组合
 
-> Phase C 和 Phase D 的代码尚未实现，后续添加。
+> **GPU 说明**: Phase C 使用贪心算法逐步添加增强操作，每次候选需要训练 3 seeds × 800 epochs。
+
+### 5.1 前置条件
+
+- Phase B 完成，`outputs/phase_b_tuning_summary.csv` 存在
+- 800 epochs 的 Baseline 结果（脚本会自动生成，或手动指定）
+
+### 5.2 运行命令
+
+```bash
+# 冒烟测试
+bash scripts/smoke_test_phase_c.sh
+
+# 先运行 800-epoch Baseline（如果尚未运行）
+CUDA_VISIBLE_DEVICES=0 python main_phase_c.py --run_baseline_only | tee logs/phase_c_baseline.log
+
+# 运行完整 Phase C（800 epochs, 3 seeds）
+CUDA_VISIBLE_DEVICES=0 nohup python main_phase_c.py > logs/phase_c.log 2>&1 &
+
+# 前台运行
+CUDA_VISIBLE_DEVICES=0 python main_phase_c.py | tee logs/phase_c.log
+
+# 冒烟测试（2 epochs, 1 seed）
+CUDA_VISIBLE_DEVICES=0 python main_phase_c.py --epochs 2 --dry_run | tee logs/phase_c_test.log
+```
+
+### 5.3 可选参数
+
+```bash
+python main_phase_c.py \
+    --epochs 800 \
+    --seeds 42,123,456 \
+    --fold_idx 0 \
+    --output_dir outputs \
+    --phase_b_csv outputs/phase_b_tuning_summary.csv \
+    --baseline_acc 35.5  # 可选，手动指定 800ep Baseline 准确率 \
+    --max_ops 3 \
+    --improvement_threshold 0.1 \
+    --num_workers 6 \
+    --early_stop_patience 5
+```
+
+### 5.4 输入文件
+
+| 文件 | 说明 |
+|------|------|
+| `outputs/phase_b_tuning_summary.csv` | Phase B 最佳配置汇总 (自动读取) |
+| `outputs/baseline_800ep_result.csv` | 800-epoch Baseline 结果 (可选，不存在则自动生成) |
+
+### 5.5 输出文件
+
+| 文件 | 说明 |
+|------|------|
+| `outputs/phase_c_history.csv` | 每次尝试添加操作的记录 |
+| `outputs/phase_c_final_policy.json` | 最终策略定义 (供 Phase D 使用) |
+| `outputs/baseline_800ep_result.csv` | 800-epoch Baseline 结果 |
+| `logs/phase_c.log` | 运行日志 |
+
+### 5.6 算法说明
+
+Phase C 使用贪心算法构建最终策略：
+
+1. 初始化策略 P = S0，Acc(P) = Baseline_800ep_acc
+2. 按 Phase B 的 mean_val_acc 排名，逐个尝试添加 Op(m*, p*)
+3. 对每个候选 Op：
+   - 检查互斥约束（如 RandomRotation 和 RandomPerspective 互斥）
+   - 训练 P + Op × 3 seeds × 800 epochs
+   - 如果 mean_acc > Acc(P) + 0.1%，则接受该 Op
+4. 最多添加 3 个额外操作
+5. 输出最终策略 P_final
+
+### 5.7 运行记录
+
+| 日期 | 耗时 | 状态 |
+|------|------|------|
+| - | - | 待运行 |
+
+---
+
+## 6. Phase D SOTA 对比实验
+
+> **GPU 说明**: Phase D 在 5 个 Folds 上运行 5 种方法，共 25 次训练，每次 800 epochs。
+
+### 6.1 前置条件
+
+- Phase C 完成，`outputs/phase_c_final_policy.json` 存在
+- 如果策略文件不存在，Ours 方法将退化为 Baseline
+
+### 6.2 运行命令
+
+```bash
+# 冒烟测试
+bash scripts/smoke_test_phase_d.sh
+
+# 完整运行（5 方法 × 5 folds × 800 epochs）
+CUDA_VISIBLE_DEVICES=0 nohup python main_phase_d.py > logs/phase_d.log 2>&1 &
+
+# 前台运行
+CUDA_VISIBLE_DEVICES=0 python main_phase_d.py | tee logs/phase_d.log
+
+# 冒烟测试
+CUDA_VISIBLE_DEVICES=0 python main_phase_d.py --epochs 2 --dry_run | tee logs/phase_d_test.log
+
+# 只运行特定方法
+CUDA_VISIBLE_DEVICES=0 python main_phase_d.py --methods Baseline,Ours_optimal
+
+# 只运行特定 folds
+CUDA_VISIBLE_DEVICES=0 python main_phase_d.py --folds 0,1,2
+```
+
+### 6.3 4-GPU 并行运行 (推荐)
+
+由于 Phase D 涉及 5 个 folds，可将不同 fold 分配到不同 GPU：
+
+```bash
+# 创建日志目录
+mkdir -p logs
+
+# 分配 folds 到不同 GPU (注意：每个 GPU 会依次运行所有方法)
+CUDA_VISIBLE_DEVICES=0 nohup python -u main_phase_d.py --folds 0,1 --output_dir outputs/phase_d_gpu0 > logs/phase_d_gpu0.log 2>&1 &
+CUDA_VISIBLE_DEVICES=1 nohup python -u main_phase_d.py --folds 2 --output_dir outputs/phase_d_gpu1 > logs/phase_d_gpu1.log 2>&1 &
+CUDA_VISIBLE_DEVICES=2 nohup python -u main_phase_d.py --folds 3 --output_dir outputs/phase_d_gpu2 > logs/phase_d_gpu2.log 2>&1 &
+CUDA_VISIBLE_DEVICES=3 nohup python -u main_phase_d.py --folds 4 --output_dir outputs/phase_d_gpu3 > logs/phase_d_gpu3.log 2>&1 &
+
+wait
+echo "All Phase D GPUs finished!"
+```
+
+**合并结果（必须执行）**：
+
+```bash
+# 合并所有 GPU 的 CSV 结果
+head -1 outputs/phase_d_gpu0/phase_d_results.csv > outputs/phase_d_results.csv
+tail -n +2 -q outputs/phase_d_gpu*/phase_d_results.csv >> outputs/phase_d_results.csv
+
+# 重新生成 summary
+python -c "
+import pandas as pd
+df = pd.read_csv('outputs/phase_d_results.csv')
+df = df[(df['error'].isna()) | (df['error'] == '')]
+summary = df.groupby('op_name').agg(
+    mean_val_acc=('val_acc', 'mean'),
+    std_val_acc=('val_acc', 'std'),
+    mean_top5_acc=('top5_acc', 'mean'),
+    std_top5_acc=('top5_acc', 'std'),
+    n_folds=('fold_idx', 'count'),
+).reset_index()
+summary = summary.rename(columns={'op_name': 'method'})
+summary = summary.fillna(0).round(4).sort_values('mean_val_acc', ascending=False)
+summary.to_csv('outputs/phase_d_summary.csv', index=False)
+print('=== Final Results ===')
+print(summary.to_string(index=False))
+"
+
+# 合并 checkpoints (只有 Ours_optimal 的)
+mkdir -p outputs/checkpoints
+cp outputs/phase_d_gpu*/checkpoints/phase_d_fold*_best.pth outputs/checkpoints/ 2>/dev/null || true
+```
+
+### 6.4 可选参数
+
+```bash
+python main_phase_d.py \
+    --epochs 800 \
+    --seed 42 \
+    --output_dir outputs \
+    --policy_json outputs/phase_c_final_policy.json \
+    --methods Baseline,RandAugment,Cutout,Ours_p1,Ours_optimal \
+    --folds 0,1,2,3,4 \
+    --num_workers 6 \
+    --early_stop_patience 5
+```
+
+### 6.5 对比方法说明
+
+| 方法 | 说明 | 参数 |
+|------|------|------|
+| **Baseline** | S0 基础增强 | RandomCrop(32, padding=4) + HorizontalFlip(p=0.5) |
+| **RandAugment** | 自动增强 SOTA | N=2, M=9 (标准设置) |
+| **Cutout** | 遮挡增强 SOTA | n_holes=1, length=16 |
+| **Ours_p1** | 消融对照 | Phase C 策略，所有 p 强制为 1.0 |
+| **Ours_optimal** | 最终方法 | Phase C 策略，使用优化的 (m, p) |
+
+### 6.6 输入文件
+
+| 文件 | 说明 |
+|------|------|
+| `outputs/phase_c_final_policy.json` | Phase C 最终策略 (必需，否则 Ours 退化为 Baseline) |
+
+### 6.7 输出文件
+
+| 文件 | 说明 |
+|------|------|
+| `outputs/phase_d_results.csv` | 每个 (method, fold) 的原始结果 |
+| `outputs/phase_d_summary.csv` | Mean ± Std 汇总 (用于论文表格) |
+| `outputs/checkpoints/phase_d_fold{0-4}_best.pth` | 最终模型 checkpoint (仅 Ours_optimal) |
+| `logs/phase_d.log` | 运行日志 |
+
+### 6.8 运行记录
+
+| 日期 | 耗时 | 状态 |
+|------|------|------|
+| - | - | 待运行 |
+
+---
+
+## 7. 计算量估计
+
+| 阶段 | 配置数 | 预计时间 (单 GPU) | 预计时间 (4 GPU) |
+|------|--------|------------------|-----------------|
+| Baseline | 1 × 200 ep | ~15 min | ~15 min |
+| Phase A | 8 ops × 32 点 × 200 ep | ~5h | ~1.2h |
+| Phase B | ~8 ops × ~25 点 × 3 seeds × 200 ep | ~6h | ~1.5h |
+| Phase C | ~8 ops × 3 seeds × 800 ep | ~16h | ~4h |
+| Phase D | 5 methods × 5 folds × 800 ep | ~25h | ~6h |
+
+> **注意**: 实际时间可能因早停和硬件差异而变化。
+
+---
+
+## 8. 输出文件汇总
+
+```
+outputs/
+├── baseline_result.csv           # Baseline 200ep 结果
+├── baseline_800ep_result.csv     # Baseline 800ep 结果 (Phase C 生成)
+├── phase_a_results.csv           # Phase A 筛选结果
+├── phase_b_tuning_raw.csv        # Phase B 原始结果
+├── phase_b_tuning_summary.csv    # Phase B 汇总结果
+├── phase_c_history.csv           # Phase C 组合历史
+├── phase_c_final_policy.json     # Phase C 最终策略
+├── phase_d_results.csv           # Phase D 原始结果
+├── phase_d_summary.csv           # Phase D 汇总结果 (论文用)
+└── checkpoints/
+    ├── baseline_best.pth         # Baseline 最佳模型
+    └── phase_d_fold{0-4}_best.pth  # Phase D 最终模型 (5-fold)
