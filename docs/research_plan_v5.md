@@ -193,3 +193,29 @@ OP_SEARCH_SPACE = {
 | **AMP** | Enabled | 混合精度加速 |
 | **Sobol Seed** | 42 | 可复现性 |
 
+---
+
+## 6. 附录：早停策略 (Early Stopping Strategy) — **v5.1 新增**
+
+### 设计原则
+
+1. **监控指标**: 使用 `val_acc` (mode="max")，而非 `val_loss`
+   - 原因: 低数据 + 强增广场景下，val_loss 和 val_acc 趋势可能不一致
+2. **min_epochs**: 确保 CosineAnnealingLR 有足够时间发挥作用
+3. **min_delta=0.2**: 过滤 val_acc 的噪声波动 (±2-3%)
+
+### 各阶段早停设置
+
+| 阶段 | epochs | min_epochs | patience | min_delta | 说明 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Phase A** | 200 | 100 | 30 | 0.2 | 快速筛选，允许早停 |
+| **Phase B** | 200 | 120 | 40 | 0.2 | 精细调参，允许早停 |
+| **Phase C** | 800 | 500 | 99999 | 0.1 | 策略构建，禁用早停 |
+| **Phase D** | 800 | 500 | 99999 | 0.1 | 最终评估，禁用早停 |
+
+### 论文解释
+
+> Phase A/B 为搜索阶段，使用早停加速筛选（min_epochs=100-120, patience=30-40）。
+> Phase C/D 为最终评估阶段，禁用早停以确保公平对比（所有方法训练相同 epochs）。
+> 所有阶段按 val_acc 选择最佳 checkpoint。
+

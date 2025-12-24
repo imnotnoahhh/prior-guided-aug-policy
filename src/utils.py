@@ -275,35 +275,47 @@ def evaluate(
 # =============================================================================
 
 class EarlyStopping:
-    """Early stopping based on validation loss with grace period.
+    """Early stopping based on validation metric with minimum epochs requirement.
     
-    Stops training if validation loss doesn't improve for `patience` epochs,
-    but only starts checking after `grace_period` epochs have passed.
+    Stops training if validation metric doesn't improve for `patience` epochs,
+    but only starts checking after `min_epochs` have passed.
     
-    This implements ASHA-style early stopping where we give the model
-    a minimum number of epochs to train before considering early stopping.
+    v5.1 Update: 
+    - Renamed grace_period to min_epochs (clearer semantics)
+    - Recommended to use mode="max" with val_acc (not val_loss)
+    - Added min_delta filtering for noisy metrics
     
     Args:
-        patience: Number of epochs to wait before stopping. Default 5.
-        min_delta: Minimum improvement to reset counter. Default 0.0.
-        mode: 'min' for loss (lower is better), 'max' for accuracy. Default 'min'.
-        grace_period: Minimum epochs before early stopping is considered. Default 40.
+        patience: Number of epochs to wait before stopping. Default 30.
+        min_delta: Minimum improvement to reset counter (in percentage points for acc). Default 0.2.
+        mode: 'min' for loss (lower is better), 'max' for accuracy. Default 'max'.
+        min_epochs: Minimum epochs before early stopping is considered. Default 100.
+        
+    Recommended settings:
+        - Phase A/B (200 epochs): min_epochs=100, patience=30, min_delta=0.2, mode="max"
+        - Phase C/D (800 epochs): Disable early stopping (patience=99999) or min_epochs=500, patience=100
         
     Example:
-        early_stopper = EarlyStopping(patience=5, grace_period=40)
+        # For Phase A/B (monitor val_acc, mode="max")
+        early_stopper = EarlyStopping(patience=30, min_epochs=100, mode="max", min_delta=0.2)
         for epoch in range(max_epochs):
-            val_loss = evaluate(...)
-            if early_stopper(val_loss, epoch):
+            val_acc = evaluate(...)
+            if early_stopper(val_acc, epoch):
                 print("Early stopping triggered!")
                 break
+                
+        # For Phase C/D (disable early stopping)
+        early_stopper = EarlyStopping(patience=99999)  # Effectively disabled
     """
     
     def __init__(
         self,
-        patience: int = 5,
-        min_delta: float = 0.0,
-        mode: str = "min",
-        grace_period: int = 40,
+        patience: int = 30,
+        min_delta: float = 0.2,
+        mode: str = "max",
+        min_epochs: int = 100,
+        # Backward compatibility alias
+        grace_period: int = None,
     ) -> None:
         if mode not in ("min", "max"):
             raise ValueError(f"mode must be 'min' or 'max', got {mode}")
@@ -311,17 +323,23 @@ class EarlyStopping:
         self.patience = patience
         self.min_delta = min_delta
         self.mode = mode
-        self.grace_period = grace_period
+        # Support both min_epochs and legacy grace_period
+        self.min_epochs = grace_period if grace_period is not None else min_epochs
         self.counter = 0
         self.best_value = float("inf") if mode == "min" else float("-inf")
         self.early_stop = False
+    
+    # Backward compatibility property
+    @property
+    def grace_period(self) -> int:
+        return self.min_epochs
     
     def __call__(self, value: float, epoch: int = None) -> bool:
         """Check if training should stop.
         
         Args:
             value: Current validation metric (loss or accuracy).
-            epoch: Current epoch (0-indexed). If provided, grace period is enforced.
+            epoch: Current epoch (0-indexed). If provided, min_epochs is enforced.
             
         Returns:
             True if training should stop, False otherwise.
@@ -338,8 +356,8 @@ class EarlyStopping:
         else:
             self.counter += 1
         
-        # Only consider stopping after grace period
-        if epoch is not None and epoch < self.grace_period:
+        # Only consider stopping after min_epochs
+        if epoch is not None and epoch < self.min_epochs:
             return False
         
         if self.counter >= self.patience:

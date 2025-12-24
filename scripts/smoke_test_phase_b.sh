@@ -192,7 +192,7 @@ python main_phase_b.py \
     --ops ColorJitter \
     --grid_points 2 \
     --output_dir "$SMOKE_OUTPUT_DIR" \
-    --early_stop_patience 1 \
+    --early_stop_patience 40 \
     --dry_run
 
 # -----------------------------------------------------------------------------

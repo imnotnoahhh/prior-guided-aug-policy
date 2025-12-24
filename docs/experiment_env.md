@@ -50,6 +50,20 @@ CUDA_VISIBLE_DEVICES=0 nohup python run_baseline.py > logs/baseline.log 2>&1 &
 tail -f logs/baseline.log
 ```
 
+### 可选参数
+
+```bash
+python run_baseline.py \
+    --epochs 200 \
+    --min_epochs 100 \
+    --early_stop_patience 30 \
+    --batch_size 64 \
+    --seed 42 \
+    --num_workers 6
+```
+
+> **v5.1 早停策略**: Baseline 使用 `min_epochs=100, patience=30, monitor=val_acc`。
+
 ### 输出文件
 
 | 文件 | 说明 |
@@ -126,9 +140,12 @@ python main_phase_a.py \
     --output_dir outputs \
     --seed 42 \
     --num_workers 6 \
-    --early_stop_patience 5 \
+    --min_epochs 100 \
+    --early_stop_patience 30 \
     --ops RandomRotation,ColorJitter  # 可选，仅评估指定的 ops
 ```
+
+> **v5.1 早停策略**: Phase A 使用 `min_epochs=100, patience=30, monitor=val_acc`。
 
 ### 输出文件
 
@@ -234,12 +251,15 @@ python main_phase_b.py \
     --baseline_csv outputs/baseline_result.csv \
     --fold_idx 0 \
     --num_workers 6 \
-    --early_stop_patience 5 \
+    --min_epochs 120 \
+    --early_stop_patience 40 \
     --top_k 4 \
     --grid_step 0.1 \
     --grid_n_steps 2 \
     # --grid_points N  # 可选，默认无限制，限制每个 op 的网格点数
     # --no_deterministic  # 可选，关闭确定性模式以提高速度
+
+> **v5.1 早停策略**: Phase B 使用 `min_epochs=120, patience=40, monitor=val_acc`。
 ```
 
 ### 调试参数
@@ -319,8 +339,10 @@ python main_phase_c.py \
     --max_ops 3 \
     --improvement_threshold 0.1 \
     --num_workers 6 \
-    --early_stop_patience 5
+    --early_stop_patience 99999  # 禁用早停
 ```
+
+> **v5.1 早停策略**: Phase C 禁用早停 (`patience=99999`)，确保跑满 800 epochs。
 
 ### 5.4 输入文件
 
@@ -336,6 +358,7 @@ python main_phase_c.py \
 | `outputs/phase_c_history.csv` | 每次尝试添加操作的记录 |
 | `outputs/phase_c_final_policy.json` | 最终策略定义 (供 Phase D 使用) |
 | `outputs/baseline_800ep_result.csv` | 800-epoch Baseline 结果 |
+| `outputs/checkpoints/phase_c_*.pth` | **v5.1 新增**: 各策略的 best checkpoint |
 | `logs/phase_c.log` | 运行日志 |
 
 ### 5.6 算法说明
@@ -450,8 +473,10 @@ python main_phase_d.py \
     --methods Baseline,RandAugment,Cutout,Ours_p1,Ours_optimal \
     --folds 0,1,2,3,4 \
     --num_workers 6 \
-    --early_stop_patience 5
+    --early_stop_patience 99999  # 禁用早停
 ```
+
+> **v5.1 早停策略**: Phase D 禁用早停 (`patience=99999`)，确保所有方法公平对比（相同训练 epochs）。
 
 ### 6.5 对比方法说明
 
@@ -486,21 +511,63 @@ python main_phase_d.py \
 
 ---
 
-## 7. 计算量估计
+## 7. 一键运行脚本
 
-| 阶段 | 配置数 | 预计时间 (单 GPU) | 预计时间 (4 GPU) |
-|------|--------|------------------|-----------------|
-| Baseline | 1 × 200 ep | ~15 min | ~15 min |
-| Phase A | 8 ops × 32 点 × 200 ep | ~5h | ~1.2h |
-| Phase B | ~8 ops × ~25 点 × 3 seeds × 200 ep | ~6h | ~1.5h |
-| Phase C | ~8 ops × 3 seeds × 800 ep | ~16h | ~4h |
-| Phase D | 5 methods × 5 folds × 800 ep | ~25h | ~6h |
+### 7.1 综合冒烟测试
 
-> **注意**: 实际时间可能因早停和硬件差异而变化。
+验证整个实验流程的正确性（约 5-10 分钟）：
+
+```bash
+bash scripts/smoke_test_all.sh
+```
+
+### 7.2 完整训练 - 单 GPU
+
+顺序运行 Baseline → A → B → C → D，约 22-24 小时：
+
+```bash
+bash scripts/train_single_gpu.sh
+
+# 或指定 GPU
+CUDA_VISIBLE_DEVICES=1 bash scripts/train_single_gpu.sh
+```
+
+### 7.3 完整训练 - 多 GPU (推荐)
+
+Baseline 和 Phase C 单 GPU，Phase A/B/D 使用 4 GPU 并行，约 10-11 小时：
+
+```bash
+bash scripts/train_multi_gpu.sh
+```
+
+### 脚本说明
+
+| 脚本 | 说明 | 预计时间 |
+|------|------|----------|
+| `scripts/smoke_test_all.sh` | 综合冒烟测试 (Baseline + ABCD) | ~5-10 min |
+| `scripts/train_single_gpu.sh` | 单 GPU 完整训练 | ~22-24h |
+| `scripts/train_multi_gpu.sh` | 混合 GPU 完整训练 | ~10-11h |
 
 ---
 
-## 8. 输出文件汇总
+## 8. 计算量估计 (v5.1 更新)
+
+| 阶段 | 配置数 | 早停策略 | 预计时间 (单 GPU) | 预计时间 (4 GPU) |
+|------|--------|----------|------------------|-----------------|
+| Baseline | 1 × 200 ep | - | ~15 min | ~15 min |
+| Phase A | 8 ops × 32 点 × 200 ep | 允许早停 | ~4-5h | ~1-1.2h |
+| Phase B | ~8 ops × ~25 点 × 3 seeds × 200 ep | 允许早停 | ~5-6h | ~1.2-1.5h |
+| Phase C | ~8 ops × 3 seeds × 800 ep | **禁用** | ~6h | ~6h (单GPU) |
+| Phase D | 5 methods × 5 folds × 800 ep | **禁用** | ~6h | ~1.5h |
+
+> **v5.1 注意**: 
+> - Phase A/B: 使用 min_epochs + patience 早停，可能提前结束
+> - Phase C/D: **禁用早停**，确保跑满 800 epochs 以保证公平对比
+> - Phase C 因贪心算法串行执行，无法多 GPU 并行；Phase D 可按 fold 分配到 4 GPU
+
+---
+
+## 9. 输出文件汇总
 
 ```
 outputs/
@@ -514,5 +581,6 @@ outputs/
 ├── phase_d_results.csv           # Phase D 原始结果
 ├── phase_d_summary.csv           # Phase D 汇总结果 (论文用)
 └── checkpoints/
-    ├── baseline_best.pth         # Baseline 最佳模型
+    ├── baseline_best.pth           # Baseline 最佳模型
+    ├── phase_c_*.pth               # Phase C 各策略最佳模型
     └── phase_d_fold{0-4}_best.pth  # Phase D 最终模型 (5-fold)

@@ -2,27 +2,30 @@
 
 本文档定义了各实验阶段的模型保存策略。
 
-## 保存策略总览
+## 保存策略总览 (v5.1 更新)
 
 | 阶段 | 保存模型 | 理由 |
 |------|----------|------|
 | **Baseline** | ✅ 是 | 对比基准，仅 1 个模型 |
 | **Phase A** | ❌ 否 | 筛选阶段，256 个配置太多 |
 | **Phase B** | ❌ 否 | 调参阶段，459+ 个配置太多 |
-| **Phase C** | ❌ 否 | 组合评估，配置较多 |
-| **Phase D** | ✅ 是 | 最终验证，5-fold 模型用于论文 |
+| **Phase C** | ✅ **是** | v5.1 新增：禁用早停后保存所有尝试的策略 |
+| **Phase D** | ✅ 是 | 最终验证，5-fold 模型用于论文 (仅 Ours_optimal) |
 
 ## 保存路径
 
 ```
 outputs/
 └── checkpoints/
-    ├── baseline_best.pth           # Baseline 最佳模型
-    ├── phase_d_fold0_best.pth      # Phase D Fold-0 最佳模型
-    ├── phase_d_fold1_best.pth      # Phase D Fold-1 最佳模型
-    ├── phase_d_fold2_best.pth      # Phase D Fold-2 最佳模型
-    ├── phase_d_fold3_best.pth      # Phase D Fold-3 最佳模型
-    └── phase_d_fold4_best.pth      # Phase D Fold-4 最佳模型
+    ├── baseline_best.pth                          # Baseline 最佳模型
+    ├── phase_c_ColorJitter_seed42_best.pth        # Phase C 单操作策略
+    ├── phase_c_ColorJitter+GaussianBlur_seed42_best.pth  # Phase C 组合策略
+    ├── ...                                        # Phase C 其他策略
+    ├── phase_d_fold0_best.pth                     # Phase D Fold-0 最佳模型
+    ├── phase_d_fold1_best.pth                     # Phase D Fold-1 最佳模型
+    ├── phase_d_fold2_best.pth                     # Phase D Fold-2 最佳模型
+    ├── phase_d_fold3_best.pth                     # Phase D Fold-3 最佳模型
+    └── phase_d_fold4_best.pth                     # Phase D Fold-4 最佳模型
 ```
 
 ## Checkpoint 内容
@@ -55,14 +58,16 @@ outputs/
 | 模型 | 数量 | 单个大小 | 总大小 |
 |------|------|----------|--------|
 | Baseline | 1 | ~45MB | ~45MB |
+| Phase C | ~24 (8 ops × 3 seeds) | ~45MB | ~1GB |
 | Phase D | 5 | ~45MB | ~225MB |
-| **总计** | 6 | - | **~270MB** |
+| **总计** | ~30 | - | **~1.3GB** |
 
 ## 用途
 
 | 模型 | 论文用途 |
 |------|----------|
 | Baseline | 基准对比、消融实验 |
+| Phase C | 策略构建过程的完整证据链、可复现性 |
 | Phase D × 5 | 报告 5-fold 平均性能、计算 std、开源复现、可视化 |
 
 ## 加载示例

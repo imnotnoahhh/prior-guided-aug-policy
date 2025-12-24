@@ -301,9 +301,15 @@ def train_single_config(
         if device.type == "cuda":
             scaler = torch.amp.GradScaler()
         
-        # Early stopping
-        grace_period = min(40, epochs // 5)
-        early_stopper = EarlyStopping(patience=early_stop_patience, mode="min", grace_period=grace_period)
+        # Early stopping (v5.1: disabled for Phase D to ensure fair comparison)
+        # Phase D is the final evaluation stage - all methods must run same epochs
+        # patience=99999 effectively disables early stopping
+        early_stopper = EarlyStopping(
+            patience=early_stop_patience,  # Default 99999 for Phase D
+            mode="max",  # Monitor val_acc (higher is better)
+            min_epochs=500,  # At least 500 epochs before considering stop
+            min_delta=0.1,
+        )
         
         # Training loop
         best_val_acc = 0.0
@@ -350,7 +356,7 @@ def train_single_config(
             
             scheduler.step()
             
-            if early_stopper(val_loss, epoch):
+            if early_stopper(val_acc, epoch):
                 result["epochs_run"] = epoch + 1
                 early_stopped = True
                 break
@@ -700,8 +706,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--early_stop_patience",
         type=int,
-        default=5,
-        help="Early stopping patience (default: 5)"
+        default=99999,
+        help="Early stopping patience - set to 99999 to disable (default: 99999 for Phase D)"
     )
     
     parser.add_argument(

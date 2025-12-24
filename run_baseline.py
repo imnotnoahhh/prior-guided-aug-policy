@@ -1,14 +1,16 @@
 #!/usr/bin/env python
 """
-Run S0 Baseline with EXACTLY the same settings as Phase A.
-Settings: epochs=200, batch_size=64, lr=0.05, wd=1e-3, early_stop_patience=5
+Run S0 Baseline with same settings as Phase A.
+Settings: epochs=200, batch_size=64, lr=0.05, wd=1e-3
 
 Usage:
     python run_baseline.py
+    python run_baseline.py --epochs 200 --min_epochs 100 --early_stop_patience 30
 
 Output:
     outputs/baseline_result.csv
 """
+import argparse
 import csv
 import sys
 import time
@@ -41,7 +43,8 @@ def run_baseline(
     fold_idx: int = 0,
     batch_size: int = 64,
     num_workers: int = 6,
-    early_stop_patience: int = 5,
+    early_stop_patience: int = 30,
+    min_epochs: int = 100,
     seed: int = 42,
     deterministic: bool = True,
 ):
@@ -61,6 +64,7 @@ def run_baseline(
     print(f"Seed: {seed}")
     print(f"Deterministic: {deterministic}")
     print(f"LR: 0.05, WD: 1e-3, Momentum: 0.9")
+    print(f"Min epochs: {min_epochs}")
     print(f"Early stop patience: {early_stop_patience}")
     print(f"Output dir: outputs")
     print("=" * 70)
@@ -131,9 +135,13 @@ def run_baseline(
     if device.type == "cuda":
         scaler = torch.amp.GradScaler()
     
-    # Early stopping with grace period (ASHA-style, per research plan)
-    # Grace period = 40 means no early stopping before epoch 40
-    early_stopper = EarlyStopping(patience=early_stop_patience, mode="min", grace_period=40)
+    # Early stopping (v5.1 strategy: monitor val_acc, mode="max")
+    early_stopper = EarlyStopping(
+        patience=early_stop_patience,
+        mode="max",  # Monitor val_acc
+        min_epochs=min_epochs,
+        min_delta=0.2,
+    )
     
     # Training loop - track all metrics for CSV
     best_val_acc = 0.0
@@ -198,8 +206,8 @@ def run_baseline(
         if (epoch + 1) % 10 == 0:
             print(f"Epoch {epoch+1:3d}: train_acc={train_acc:.1f}%, val_acc={val_acc:.1f}%, top5={top5_acc:.1f}%")
         
-        # Early stopping check (with grace period)
-        if early_stopper(val_loss, epoch):
+        # Early stopping check (monitor val_acc)
+        if early_stopper(val_acc, epoch + 1):
             print(f"\nEarly stopping at epoch {epoch + 1}")
             early_stopped = True
             break
@@ -298,5 +306,29 @@ def run_baseline(
     }
 
 
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Run S0 Baseline training")
+    parser.add_argument("--epochs", type=int, default=200, help="Number of epochs")
+    parser.add_argument("--fold_idx", type=int, default=0, help="Fold index")
+    parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
+    parser.add_argument("--num_workers", type=int, default=6, help="Data loader workers")
+    parser.add_argument("--early_stop_patience", type=int, default=30, help="Early stopping patience")
+    parser.add_argument("--min_epochs", type=int, default=100, help="Minimum epochs before early stopping")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--no_deterministic", action="store_true", help="Disable deterministic mode")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    result = run_baseline()
+    args = parse_args()
+    result = run_baseline(
+        epochs=args.epochs,
+        fold_idx=args.fold_idx,
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
+        early_stop_patience=args.early_stop_patience,
+        min_epochs=args.min_epochs,
+        seed=args.seed,
+        deterministic=not args.no_deterministic,
+    )

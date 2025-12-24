@@ -128,13 +128,15 @@ def train_single_config(
     fold_idx: int = 0,
     batch_size: int = 64,
     num_workers: int = 6,
-    early_stop_patience: int = 5,
+    early_stop_patience: int = 30,
+    min_epochs: int = 100,
     seed: int = 42,
     deterministic: bool = True,
 ) -> Dict:
     """Train one configuration and return metrics.
     
     v5 CHANGED: Added probability parameter for stochastic application.
+    v5.1 CHANGED: Updated early stopping to monitor val_acc with min_epochs.
     
     Args:
         op_name: Name of the augmentation operation.
@@ -145,7 +147,8 @@ def train_single_config(
         fold_idx: Which fold to use (default 0 for search).
         batch_size: Batch size (64 for low-data regime).
         num_workers: Number of data loading workers.
-        early_stop_patience: Epochs to wait before early stopping.
+        early_stop_patience: Epochs to wait after no improvement. Default 30 for Phase A.
+        min_epochs: Minimum epochs before early stopping. Default 100 for Phase A.
         seed: Random seed for reproducibility.
         deterministic: If True, enable deterministic CUDA mode.
         
@@ -248,9 +251,15 @@ def train_single_config(
     if device.type == "cuda":
         scaler = torch.amp.GradScaler()
     
-    # Early stopping with grace period (ASHA-style, per research plan)
-    # Grace period = 40 means no early stopping before epoch 40
-    early_stopper = EarlyStopping(patience=early_stop_patience, mode="min", grace_period=40)
+    # Early stopping (v5.1: monitor val_acc, not val_loss)
+    # min_epochs=100 ensures Cosine LR has time to work before early stopping kicks in
+    # min_delta=0.2 filters noise (val_acc fluctuates ±2-3%)
+    early_stopper = EarlyStopping(
+        patience=early_stop_patience,
+        mode="max",  # Monitor val_acc (higher is better)
+        min_epochs=min_epochs,
+        min_delta=0.2,  # 0.2 percentage points
+    )
     
     # Training loop - track all metrics
     best_val_acc = 0.0
@@ -292,8 +301,8 @@ def train_single_config(
         # Step scheduler
         scheduler.step()
         
-        # Early stopping check (with grace period)
-        if early_stopper(val_loss, epoch):
+        # Early stopping check (v5.1: monitor val_acc, not val_loss)
+        if early_stopper(val_acc, epoch):
             result["epochs_run"] = epoch + 1
             early_stopped = True
             break
@@ -429,8 +438,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--early_stop_patience",
         type=int,
-        default=5,
-        help="Early stopping patience (default: 5)"
+        default=30,
+        help="Early stopping patience - epochs to wait after no improvement (default: 30)"
+    )
+    
+    parser.add_argument(
+        "--min_epochs",
+        type=int,
+        default=100,
+        help="Minimum epochs before early stopping is considered (default: 100)"
     )
     
     parser.add_argument(
@@ -466,7 +482,7 @@ def main() -> int:
     print(f"Seed: {args.seed}")
     print(f"Deterministic: True")
     print(f"LR: 0.05, WD: 1e-3, Momentum: 0.9")
-    print(f"Early stop patience: {args.early_stop_patience}")
+    print(f"Early stopping: min_epochs={args.min_epochs}, patience={args.early_stop_patience}, monitor=val_acc")
     print(f"Output dir: {args.output_dir}")
     print("-" * 70)
     print(f"v5: 2D Sobol samples per op: {args.n_samples}")
@@ -550,6 +566,7 @@ def main() -> int:
                 fold_idx=args.fold_idx,
                 num_workers=args.num_workers,
                 early_stop_patience=args.early_stop_patience,
+                min_epochs=args.min_epochs,
                 seed=args.seed,
             )
             success_count += 1

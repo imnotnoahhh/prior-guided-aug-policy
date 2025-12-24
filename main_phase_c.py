@@ -140,8 +140,12 @@ def train_single_config(
     num_workers: int = 6,
     early_stop_patience: int = 5,
     deterministic: bool = True,
+    save_checkpoint: bool = False,
+    checkpoint_dir: Optional[Path] = None,
 ) -> Dict:
     """Train one configuration (policy) and return metrics.
+    
+    v5.1: Added checkpoint saving for Phase C.
     
     Args:
         ops: List of (op_name, magnitude, probability) tuples defining the policy.
@@ -153,6 +157,8 @@ def train_single_config(
         num_workers: Number of data loading workers.
         early_stop_patience: Early stopping patience.
         deterministic: If True, enable deterministic CUDA mode.
+        save_checkpoint: If True, save best model checkpoint.
+        checkpoint_dir: Directory for checkpoints.
         
     Returns:
         Dict with training results.
@@ -264,9 +270,15 @@ def train_single_config(
         if device.type == "cuda":
             scaler = torch.amp.GradScaler()
         
-        # Early stopping (grace period = 40 for short runs, scale for 800 epochs)
-        grace_period = min(40, epochs // 5)
-        early_stopper = EarlyStopping(patience=early_stop_patience, mode="min", grace_period=grace_period)
+        # Early stopping (v5.1: disabled for Phase C to ensure full training)
+        # Phase C is the policy construction stage - we need reliable results
+        # patience=99999 effectively disables early stopping
+        early_stopper = EarlyStopping(
+            patience=early_stop_patience,  # Default 99999 for Phase C
+            mode="max",  # Monitor val_acc (higher is better)
+            min_epochs=500,  # At least 500 epochs before considering stop
+            min_delta=0.1,
+        )
         
         # Training loop
         best_val_acc = 0.0
@@ -276,6 +288,7 @@ def train_single_config(
         best_train_loss = 0.0
         best_epoch = 0
         early_stopped = False
+        best_model_state = None  # For checkpoint saving
         
         for epoch in range(epochs):
             train_loss, train_acc = train_one_epoch(
@@ -301,15 +314,46 @@ def train_single_config(
                 best_train_acc = train_acc
                 best_train_loss = train_loss
                 best_epoch = epoch + 1
+                # Save best model state for checkpoint
+                if save_checkpoint:
+                    best_model_state = {
+                        "model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "scheduler_state_dict": scheduler.state_dict(),
+                    }
             
             scheduler.step()
             
-            if early_stopper(val_loss, epoch):
+            if early_stopper(val_acc, epoch):
                 result["epochs_run"] = epoch + 1
                 early_stopped = True
                 break
             
             result["epochs_run"] = epoch + 1
+        
+        # Save checkpoint if requested
+        if save_checkpoint and best_model_state is not None and checkpoint_dir is not None:
+            ops_str = "+".join([op[0] for op in ops]) if ops else "baseline"
+            checkpoint_path = checkpoint_dir / f"phase_c_{ops_str}_seed{seed}_best.pth"
+            checkpoint = {
+                **best_model_state,
+                "epoch": best_epoch,
+                "val_acc": best_val_acc,
+                "top5_acc": best_top5_acc,
+                "val_loss": best_val_loss,
+                "config": {
+                    "ops": [(op[0], op[1], op[2]) for op in ops],
+                    "seed": seed,
+                    "fold_idx": fold_idx,
+                    "epochs": epochs,
+                    "batch_size": batch_size,
+                    "lr": 0.05,
+                    "weight_decay": 1e-3,
+                    "momentum": 0.9,
+                }
+            }
+            torch.save(checkpoint, checkpoint_path)
+            print(f"Checkpoint saved: {checkpoint_path}")
         
         result["val_acc"] = round(best_val_acc, 4)
         result["val_loss"] = round(best_val_loss, 6)
@@ -496,8 +540,11 @@ def run_phase_c(
     early_stop_patience: int = 5,
     deterministic: bool = True,
     dry_run: bool = False,
+    save_checkpoints: bool = True,
 ) -> List[Tuple[str, float, float]]:
     """Run Phase C greedy ensemble algorithm.
+    
+    v5.1: Added checkpoint saving for accepted policies.
     
     Args:
         phase_b_csv: Path to Phase B summary CSV.
@@ -512,12 +559,17 @@ def run_phase_c(
         early_stop_patience: Early stopping patience.
         deterministic: Enable deterministic CUDA mode.
         dry_run: If True, run minimal epochs for testing.
+        save_checkpoints: If True, save checkpoints for accepted policies.
         
     Returns:
         Final policy as list of (op_name, magnitude, probability) tuples.
     """
     device = get_device()
     ensure_dir(output_dir)
+    
+    # Create checkpoint directory
+    checkpoint_dir = output_dir / "checkpoints"
+    ensure_dir(checkpoint_dir)
     
     history_csv_path = output_dir / "phase_c_history.csv"
     policy_json_path = output_dir / "phase_c_final_policy.json"
@@ -588,6 +640,8 @@ def run_phase_c(
             num_workers=num_workers,
             early_stop_patience=early_stop_patience,
             deterministic=deterministic,
+            save_checkpoint=save_checkpoints and not dry_run,
+            checkpoint_dir=checkpoint_dir,
         )
         
         # Write results to CSV
@@ -761,8 +815,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--early_stop_patience",
         type=int,
-        default=5,
-        help="Early stopping patience (default: 5)"
+        default=99999,
+        help="Early stopping patience - set to 99999 to disable (default: 99999 for Phase C)"
     )
     
     parser.add_argument(
