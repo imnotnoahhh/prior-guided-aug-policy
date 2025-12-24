@@ -164,10 +164,10 @@ from pathlib import Path
 from main_phase_b import load_phase_a_results, load_baseline_result, get_promoted_ops
 
 phase_a_df = load_phase_a_results(Path('$PHASE_A_CSV'))
-baseline_acc, baseline_top5 = load_baseline_result(Path('$BASELINE_CSV'))
-promoted = get_promoted_ops(phase_a_df, baseline_acc, baseline_top5)
+baseline_acc, baseline_top5, baseline_train_loss = load_baseline_result(Path('$BASELINE_CSV'))
+promoted = get_promoted_ops(phase_a_df, baseline_acc, baseline_top5, baseline_train_loss)
 
-print(f'Baseline: Top-1={baseline_acc:.1f}%, Top-5={baseline_top5:.1f}%')
+print(f'Baseline: Top-1={baseline_acc:.1f}%, Top-5={baseline_top5:.1f}%, TrainLoss={baseline_train_loss:.4f}')
 print(f'Promoted ops ({len(promoted)}): {promoted}')
 
 if len(promoted) == 0:
