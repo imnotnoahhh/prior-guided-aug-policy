@@ -4,6 +4,7 @@ PyTorch Profiler 脚本 - 分析训练瓶颈
 用法:
     python scripts/profile_training.py
     python scripts/profile_training.py --batch_size 256
+    python scripts/profile_training.py --batch_size 256 --record_shapes --profile_memory
 """
 import argparse
 import sys
@@ -12,7 +13,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from torch.profiler import profile, record_function, ProfilerActivity
+from torch.profiler import profile, record_function, ProfilerActivity, schedule
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -29,6 +30,8 @@ def run_profiler(
     num_workers: int = 6,
     num_batches: int = 20,
     warmup_batches: int = 5,
+    record_shapes: bool = False,
+    profile_memory: bool = False,
 ):
     """运行 profiler 分析训练瓶颈"""
     
@@ -41,8 +44,10 @@ def run_profiler(
     print(f"Device: {device}")
     print(f"Batch size: {batch_size}")
     print(f"Num workers: {num_workers}")
-    print(f"Warmup batches: {warmup_batches}")
+    print(f"Warmup batches (pre-profiler): {warmup_batches}")
     print(f"Profile batches: {num_batches}")
+    print(f"Record shapes: {record_shapes}")
+    print(f"Profile memory: {profile_memory}")
     print("=" * 70)
     
     # 使用一个典型的增强配置
@@ -93,7 +98,7 @@ def run_profiler(
     print("\n开始 Profiling...")
     print("-" * 70)
     
-    # Warmup
+    # Pre-profiler warmup (outside profiler to avoid measuring warmup)
     model.train()
     data_iter = iter(train_loader)
     for i in range(warmup_batches):
@@ -103,7 +108,9 @@ def run_profiler(
             data_iter = iter(train_loader)
             images, labels = next(data_iter)
         
-        images, labels = images.to(device), labels.to(device)
+        # non_blocking=True for async H2D transfer
+        images = images.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
         
         optimizer.zero_grad()
         if use_amp:
@@ -119,20 +126,39 @@ def run_profiler(
             loss.backward()
             optimizer.step()
     
-    print(f"Warmup 完成 ({warmup_batches} batches)")
+    # Sync before profiling to ensure warmup is complete
+    if use_cuda:
+        torch.cuda.synchronize()
     
-    # Profile
+    print(f"Pre-profiler warmup 完成 ({warmup_batches} batches)")
+    
+    # Profile with schedule for accurate CUDA timing
     activities = [ProfilerActivity.CPU]
     if device.type == "cuda":
         activities.append(ProfilerActivity.CUDA)
     
+    # Schedule: wait=2, warmup=2, active=num_batches
+    # Total steps = wait + warmup + active
+    prof_wait = 2
+    prof_warmup = 2
+    prof_active = num_batches
+    total_steps = prof_wait + prof_warmup + prof_active
+    
+    prof_sched = schedule(
+        wait=prof_wait,
+        warmup=prof_warmup,
+        active=prof_active,
+        repeat=1,
+    )
+    
     with profile(
         activities=activities,
-        record_shapes=True,
-        profile_memory=True,
-        with_stack=True,
+        schedule=prof_sched,
+        record_shapes=record_shapes,
+        profile_memory=profile_memory,
+        with_stack=False,  # Disable stack tracing to reduce overhead
     ) as prof:
-        for i in range(num_batches):
+        for i in range(total_steps):
             try:
                 images, labels = next(data_iter)
             except StopIteration:
@@ -140,7 +166,9 @@ def run_profiler(
                 images, labels = next(data_iter)
             
             with record_function("data_to_device"):
-                images, labels = images.to(device), labels.to(device)
+                # non_blocking=True for async H2D transfer
+                images = images.to(device, non_blocking=True)
+                labels = labels.to(device, non_blocking=True)
             
             optimizer.zero_grad()
             
@@ -166,8 +194,11 @@ def run_profiler(
                 
                 with record_function("optimizer_step"):
                     optimizer.step()
+            
+            # Must call prof.step() at the end of each iteration
+            prof.step()
     
-    print(f"Profiling 完成 ({num_batches} batches)")
+    print(f"Profiling 完成 (schedule: wait={prof_wait}, warmup={prof_warmup}, active={prof_active})")
     
     # 输出结果
     print("\n" + "=" * 70)
@@ -197,33 +228,37 @@ def run_profiler(
     key_averages = prof.key_averages()
     total_cpu_time = sum(item.cpu_time_total for item in key_averages)
     
-    data_time = sum(item.cpu_time_total for item in key_averages 
-                    if "DataLoader" in item.key or "data_to_device" in item.key)
-    forward_time = sum(item.cpu_time_total for item in key_averages 
-                       if "forward" in item.key.lower() or "conv" in item.key.lower())
-    backward_time = sum(item.cpu_time_total for item in key_averages 
-                        if "backward" in item.key.lower())
-    
-    print(f"数据加载占比: ~{data_time/total_cpu_time*100:.1f}%")
-    print(f"前向传播占比: ~{forward_time/total_cpu_time*100:.1f}%")
-    print(f"反向传播占比: ~{backward_time/total_cpu_time*100:.1f}%")
-    
-    print("\n建议:")
-    if data_time / total_cpu_time > 0.3:
-        print("  ⚠️  数据加载占比较高，建议:")
-        print("      - 增加 num_workers")
-        print("      - 检查数据增强是否过于复杂")
-        print("      - 考虑预加载数据到内存")
-    
-    if device.type == "cuda":
-        try:
-            cuda_util = sum(item.self_cuda_time_total for item in key_averages if hasattr(item, 'self_cuda_time_total') and item.self_cuda_time_total > 0)
-            if cuda_util / total_cpu_time < 0.5:
-                print("  ⚠️  GPU 利用率可能较低，建议:")
-                print("      - 增大 batch_size")
-                print("      - 检查是否有 CPU-GPU 同步瓶颈")
-        except:
-            print("  (无法获取 CUDA 时间统计)")
+    if total_cpu_time > 0:
+        data_time = sum(item.cpu_time_total for item in key_averages 
+                        if "DataLoader" in item.key or "data_to_device" in item.key)
+        forward_time = sum(item.cpu_time_total for item in key_averages 
+                           if "forward" in item.key.lower() or "conv" in item.key.lower())
+        backward_time = sum(item.cpu_time_total for item in key_averages 
+                            if "backward" in item.key.lower())
+        
+        print(f"数据加载占比: ~{data_time/total_cpu_time*100:.1f}%")
+        print(f"前向传播占比: ~{forward_time/total_cpu_time*100:.1f}%")
+        print(f"反向传播占比: ~{backward_time/total_cpu_time*100:.1f}%")
+        
+        print("\n建议:")
+        if data_time / total_cpu_time > 0.3:
+            print("  ⚠️  数据加载占比较高，建议:")
+            print("      - 增加 num_workers")
+            print("      - 检查数据增强是否过于复杂")
+            print("      - 考虑预加载数据到内存")
+        
+        if device.type == "cuda":
+            try:
+                cuda_util = sum(item.self_cuda_time_total for item in key_averages 
+                               if hasattr(item, 'self_cuda_time_total') and item.self_cuda_time_total > 0)
+                if cuda_util / total_cpu_time < 0.5:
+                    print("  ⚠️  GPU 利用率可能较低，建议:")
+                    print("      - 增大 batch_size")
+                    print("      - 检查是否有 CPU-GPU 同步瓶颈")
+            except:
+                print("  (无法获取 CUDA 时间统计)")
+    else:
+        print("  (无法计算时间占比，total_cpu_time=0)")
     
     print("\n" + "=" * 70)
     print("Profiling 完成!")
@@ -234,8 +269,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description="PyTorch Profiler - 训练瓶颈分析")
     parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
     parser.add_argument("--num_workers", type=int, default=6, help="DataLoader workers")
-    parser.add_argument("--num_batches", type=int, default=20, help="Number of batches to profile")
-    parser.add_argument("--warmup_batches", type=int, default=5, help="Warmup batches")
+    parser.add_argument("--num_batches", type=int, default=20, help="Number of batches to profile (active steps)")
+    parser.add_argument("--warmup_batches", type=int, default=5, help="Pre-profiler warmup batches")
+    parser.add_argument("--record_shapes", action="store_true", help="Record tensor shapes (adds overhead)")
+    parser.add_argument("--profile_memory", action="store_true", help="Profile memory usage (adds overhead)")
     return parser.parse_args()
 
 
@@ -246,5 +283,6 @@ if __name__ == "__main__":
         num_workers=args.num_workers,
         num_batches=args.num_batches,
         warmup_batches=args.warmup_batches,
+        record_shapes=args.record_shapes,
+        profile_memory=args.profile_memory,
     )
-
