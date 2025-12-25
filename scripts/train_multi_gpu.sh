@@ -316,7 +316,6 @@ print(summary.to_string(index=False))
 # 合并 checkpoints
 echo "合并 checkpoints..."
 cp "${OUTPUT_DIR}"/gpu*/checkpoints/phase_d_fold*_best.pth "${OUTPUT_DIR}/checkpoints/" 2>/dev/null || true
-cp "${OUTPUT_DIR}"/checkpoints/phase_c_*.pth "${OUTPUT_DIR}/checkpoints/" 2>/dev/null || true
 
 check_success "${OUTPUT_DIR}/phase_d_summary.csv" "Phase D"
 
