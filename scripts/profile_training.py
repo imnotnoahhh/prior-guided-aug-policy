@@ -336,7 +336,9 @@ def run_profiler(
         if layout_ops:
             print("\n⚠️  检测到内存布局转换:")
             for op in layout_ops:
-                print(f"    - {op.key}: count={op.count}, cuda_time={op.cuda_time_total/1000:.2f}ms")
+                # 使用 self_cuda_time_total (FunctionEventAvg 的正确属性)
+                cuda_time = getattr(op, 'self_cuda_time_total', 0) or 0
+                print(f"    - {op.key}: count={op.count}, cuda_time={cuda_time/1000:.2f}ms")
             print("    建议使用 --channels_last 消除布局转换")
         else:
             print("✅ 未检测到 NCHW/NHWC 布局转换")
