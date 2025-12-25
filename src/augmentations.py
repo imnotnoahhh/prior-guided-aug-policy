@@ -566,31 +566,25 @@ def build_transform_with_ops(
     return transforms.Compose(final_transforms)
 
 
-def get_compatible_ops(current_ops: list) -> list:
-    """Get list of ops compatible with current policy (no mutual exclusion).
+def get_compatible_ops(current_ops: list, candidate_op: str = None) -> bool:
+    """Check if a candidate op is compatible with current policy.
     
     Args:
         current_ops: List of op_names already in the policy.
+        candidate_op: The op to check for compatibility.
         
     Returns:
-        List of op_names that can be added without conflict.
+        True if candidate_op is compatible with all current_ops, False otherwise.
     """
-    all_ops = AugmentationSpace.get_available_ops()
-    compatible = []
+    if candidate_op is None:
+        return True
     
-    for op in all_ops:
-        if op in current_ops:
-            continue
-        # Check mutual exclusion with all current ops
-        is_compatible = True
-        for current_op in current_ops:
-            if AugmentationSpace.is_mutually_exclusive(op, current_op):
-                is_compatible = False
-                break
-        if is_compatible:
-            compatible.append(op)
+    # Check if candidate conflicts with any current op
+    for current_op in current_ops:
+        if AugmentationSpace.is_mutually_exclusive(candidate_op, current_op):
+            return False
     
-    return compatible
+    return True
 
 
 def check_mutual_exclusion(op1: str, op2: str) -> bool:
