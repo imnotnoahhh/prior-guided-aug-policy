@@ -566,6 +566,34 @@ def build_transform_with_ops(
     return transforms.Compose(final_transforms)
 
 
+def build_ours_p1_transform(
+    ops: list,
+    include_baseline: bool = True,
+    include_normalize: bool = False,
+) -> transforms.Compose:
+    """Build transform with all probabilities forced to 1.0 (for ablation study).
+    
+    This is used in Phase D to compare Ours_optimal (with tuned p) vs Ours_p1 (all p=1.0).
+    
+    Args:
+        ops: List of (op_name, magnitude, probability) tuples. The probability is ignored
+             and forced to 1.0.
+        include_baseline: If True, include S0 baseline transforms.
+        include_normalize: If True, include normalization.
+        
+    Returns:
+        Composed transform with all probabilities set to 1.0.
+    """
+    # Convert ops to have p=1.0
+    ops_p1 = [(op_name, magnitude, 1.0) for (op_name, magnitude, _) in ops]
+    
+    return build_transform_with_ops(
+        ops=ops_p1,
+        include_baseline=include_baseline,
+        include_normalize=include_normalize,
+    )
+
+
 def get_compatible_ops(current_ops: list, candidate_op: str = None) -> bool:
     """Check if a candidate op is compatible with current policy.
     
