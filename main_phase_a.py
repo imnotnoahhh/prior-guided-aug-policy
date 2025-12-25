@@ -128,8 +128,8 @@ def train_single_config(
     fold_idx: int = 0,
     batch_size: int = 128,
     num_workers: int = 8,
-    early_stop_patience: int = 80,
-    min_epochs: int = 80,
+    early_stop_patience: int = 60,
+    min_epochs: int = 60,
     seed: int = 42,
     deterministic: bool = True,
 ) -> Dict:
@@ -442,15 +442,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--early_stop_patience",
         type=int,
-        default=80,
-        help="Early stopping patience - epochs to wait after no improvement (default: 80)"
+        default=60,
+        help="Early stopping patience - epochs to wait after no improvement (default: 60)"
     )
     
     parser.add_argument(
         "--min_epochs",
         type=int,
-        default=80,
-        help="Minimum epochs before early stopping is considered (default: 80)"
+        default=60,
+        help="Minimum epochs before early stopping is considered (default: 60)"
     )
     
     parser.add_argument(
