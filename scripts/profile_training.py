@@ -216,11 +216,14 @@ def run_profiler(
         print("      - 考虑预加载数据到内存")
     
     if device.type == "cuda":
-        cuda_util = sum(item.cuda_time_total for item in key_averages if item.cuda_time_total > 0)
-        if cuda_util / total_cpu_time < 0.5:
-            print("  ⚠️  GPU 利用率可能较低，建议:")
-            print("      - 增大 batch_size")
-            print("      - 检查是否有 CPU-GPU 同步瓶颈")
+        try:
+            cuda_util = sum(item.self_cuda_time_total for item in key_averages if hasattr(item, 'self_cuda_time_total') and item.self_cuda_time_total > 0)
+            if cuda_util / total_cpu_time < 0.5:
+                print("  ⚠️  GPU 利用率可能较低，建议:")
+                print("      - 增大 batch_size")
+                print("      - 检查是否有 CPU-GPU 同步瓶颈")
+        except:
+            print("  (无法获取 CUDA 时间统计)")
     
     print("\n" + "=" * 70)
     print("Profiling 完成!")
