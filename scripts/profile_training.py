@@ -1,14 +1,25 @@
 #!/usr/bin/env python
 """
-PyTorch Profiler 脚本 - 训练瓶颈分析 (v6)
+PyTorch Profiler - 训练瓶颈分析 (v7)
 
-变化:
-- 默认 profiling 非 deterministic：cudnn.benchmark=True（更接近真实吞吐）
-- 修正“布局转换”检测：只抓 convertTensor / nchwToNhwc / foldedNhwc 等
-- 默认 channels_last，但在 --disable_amp(FP32) 时默认关闭 channels_last
-  （可用 --force_channels_last 强制开启）
+用法示例:
+  # 真实训练建议：BF16 + channels_last (默认)
+  python scripts/profile_training.py --batch_size 512 --num_workers 20 --prefetch_factor 8
+
+  # FP32 baseline：关 AMP
+  python scripts/profile_training.py --batch_size 512 --num_workers 20 --prefetch_factor 8 --disable_amp
+
+  # FP32 + 关 TF32（你刚跑的那条，用来消除某些内部格式转换）
+  python scripts/profile_training.py --batch_size 512 --num_workers 20 --prefetch_factor 8 --disable_amp --no_tf32
+
+  # deterministic（注意：会更慢；v7 自动处理 CUBLAS_WORKSPACE_CONFIG）
+  python scripts/profile_training.py --batch_size 512 --num_workers 20 --prefetch_factor 8 --disable_amp --deterministic --no_tf32
+
+  # 强制 channels_last（即使 disable_amp 也强制）
+  python scripts/profile_training.py --batch_size 512 --num_workers 20 --prefetch_factor 8 --disable_amp --force_channels_last
 """
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -17,29 +28,41 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.profiler import profile, record_function, ProfilerActivity, schedule
 
+# Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.dataset import CIFAR100Subsampled
-from src.augmentations import get_val_transform, build_transform_with_op
+from src.augmentations import build_transform_with_op, get_val_transform
 from src.models import create_model
 from src.utils import get_device
 
 
-def _set_perf_flags(use_cuda: bool, tf32: bool, deterministic: bool):
-    if not use_cuda:
+def _configure_reproducibility(deterministic: bool):
+    """
+    deterministic=True 时：
+    - 关闭 cudnn benchmark
+    - 启用 deterministic algorithms
+    - 设置 CUBLAS_WORKSPACE_CONFIG，避免你刚才的 CuBLAS 报错
+    """
+    if not deterministic:
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.deterministic = False
         return
-    # TF32
-    torch.backends.cuda.matmul.allow_tf32 = tf32
-    torch.backends.cudnn.allow_tf32 = tf32
 
-    # Determinism（profiling 通常不需要 deterministic）
-    torch.backends.cudnn.deterministic = deterministic
-    torch.backends.cudnn.benchmark = (not deterministic)
-    try:
-        torch.use_deterministic_algorithms(deterministic)
-    except Exception:
-        pass
+    # 必须在触发 cublas 之前设置（一般在第一次 matmul/conv 之前设置就行）
+    if "CUBLAS_WORKSPACE_CONFIG" not in os.environ:
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    torch.use_deterministic_algorithms(True)
+
+
+def _configure_tf32(enable_tf32: bool):
+    # TF32 影响 matmul / cudnn（A100 上通常对吞吐很关键）
+    torch.backends.cuda.matmul.allow_tf32 = enable_tf32
+    torch.backends.cudnn.allow_tf32 = enable_tf32
 
 
 def run_profiler(
@@ -54,25 +77,30 @@ def run_profiler(
     persistent_workers: bool = True,
     prefetch_factor: int = 4,
     drop_last: bool = True,
-    tf32: bool = True,
+    no_tf32: bool = False,
     deterministic: bool = False,
-    channels_last: bool = True,
     force_channels_last: bool = False,
 ):
     device = get_device()
-    use_cuda = (device.type == "cuda")
+    use_cuda = device.type == "cuda"
 
-    _set_perf_flags(use_cuda=use_cuda, tf32=tf32, deterministic=deterministic)
+    # deterministic / tf32 配置要尽早做
+    _configure_reproducibility(deterministic=deterministic)
+    _configure_tf32(enable_tf32=(use_cuda and not no_tf32))
 
-    # 关键策略：
-    # - BF16 AMP：channels_last 通常更好
-    # - FP32（disable_amp）：你现在看到 convertTensor 很重，默认关 channels_last 避免 cuDNN 频繁转换
-    use_channels_last = channels_last
-    if disable_amp and use_cuda and (not force_channels_last):
-        use_channels_last = False
+    # AMP 配置：默认 BF16 autocast（不使用 GradScaler，避免隐式同步）
+    use_amp = use_cuda and not disable_amp
+    autocast_dtype = torch.bfloat16  # A100 原生支持 BF16
+
+    # channels_last 策略：
+    # - 默认：启用（与你 v4/v5 目标一致）
+    # - 如果 disable_amp 且没 force_channels_last：允许你做 NCHW baseline（更容易对比）
+    channels_last_on = True
+    if disable_amp and not force_channels_last:
+        channels_last_on = False
 
     print("=" * 70)
-    print("PyTorch Profiler - 训练瓶颈分析 (v6)")
+    print("PyTorch Profiler - 训练瓶颈分析 (v7)")
     print("=" * 70)
     print(f"Device: {device}")
     print(f"Batch size: {batch_size}")
@@ -83,14 +111,14 @@ def run_profiler(
     print(f"Profile memory: {profile_memory}")
     print("-" * 70)
     print(f"AMP: {'DISABLED' if disable_amp else 'enabled (BF16, no GradScaler)'}")
-    print(f"Channels last: {'ON' if use_channels_last else 'OFF'}"
-          + (" (forced)" if (force_channels_last and disable_amp) else ""))
-    print(f"TF32: {'enabled' if (use_cuda and tf32) else 'disabled'}")
+    print(f"Channels last: {'ON (forced)' if force_channels_last else ('ON' if channels_last_on else 'OFF')}")
+    print(f"TF32: {'disabled' if (use_cuda and no_tf32) else ('enabled' if use_cuda else 'n/a')}")
     print(f"Deterministic: {'YES' if deterministic else 'NO'}")
     print(f"DataLoader: pin_memory={pin_memory}, persistent_workers={persistent_workers}, "
           f"prefetch_factor={prefetch_factor}, drop_last={drop_last}")
     print("=" * 70)
 
+    # transforms
     train_transform = build_transform_with_op(
         op_name="ColorJitter",
         magnitude=0.5,
@@ -112,7 +140,7 @@ def run_profiler(
         "batch_size": batch_size,
         "shuffle": True,
         "num_workers": num_workers,
-        "pin_memory": (pin_memory if use_cuda else False),
+        "pin_memory": pin_memory if use_cuda else False,
         "drop_last": drop_last,
     }
     if num_workers > 0:
@@ -123,28 +151,27 @@ def run_profiler(
     print(f"\nDataLoader 配置: {loader_kwargs}")
 
     model = create_model(num_classes=100, pretrained=False).to(device)
-    if use_channels_last:
+    if channels_last_on or force_channels_last:
         model = model.to(memory_format=torch.channels_last)
         print("模型: channels_last (NHWC)")
     else:
         print("模型: NCHW (默认)")
 
-    model.train()
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.05, momentum=0.9, weight_decay=1e-3)
 
-    use_amp = use_cuda and (not disable_amp)
-    autocast_dtype = torch.bfloat16
     if use_amp:
         print(f"AMP 已启用: autocast dtype={autocast_dtype}, 无 GradScaler")
     else:
-        print("AMP 已禁用" if disable_amp else "AMP 不可用 (非 CUDA)")
+        print("AMP 已禁用")
 
     print("\n开始 Profiling...")
     print("-" * 70)
 
-    # warmup（不做 synchronize）
+    model.train()
     data_iter = iter(train_loader)
+
+    # Pre-profiler warmup（不显式 synchronize）
     for _ in range(warmup_batches):
         try:
             images, labels = next(data_iter)
@@ -152,13 +179,15 @@ def run_profiler(
             data_iter = iter(train_loader)
             images, labels = next(data_iter)
 
-        if use_channels_last:
+        if channels_last_on or force_channels_last:
             images = images.to(device, non_blocking=True, memory_format=torch.channels_last)
         else:
             images = images.to(device, non_blocking=True)
+
         labels = labels.to(device, non_blocking=True)
 
         optimizer.zero_grad(set_to_none=True)
+
         if use_amp:
             with torch.amp.autocast(device_type="cuda", dtype=autocast_dtype):
                 outputs = model(images)
@@ -177,8 +206,11 @@ def run_profiler(
     if use_cuda:
         activities.append(ProfilerActivity.CUDA)
 
-    prof_wait, prof_warmup, prof_active = 3, 2, num_batches
+    prof_wait = 3
+    prof_warmup = 2
+    prof_active = num_batches
     total_steps = prof_wait + prof_warmup + prof_active
+
     prof_sched = schedule(wait=prof_wait, warmup=prof_warmup, active=prof_active, repeat=1)
 
     with profile(
@@ -196,7 +228,7 @@ def run_profiler(
                 images, labels = next(data_iter)
 
             with record_function("data_to_device"):
-                if use_channels_last:
+                if channels_last_on or force_channels_last:
                     images = images.to(device, non_blocking=True, memory_format=torch.channels_last)
                 else:
                     images = images.to(device, non_blocking=True)
@@ -243,34 +275,31 @@ def run_profiler(
     print(f"\n详细 trace 已保存到: {trace_path}")
     print("Chrome 打开 chrome://tracing 加载查看")
 
+    # v7 快速检查：只盯“真实转换”和“真实同步”关键词
     print("\n" + "=" * 70)
-    print("快速检查 (v6 更准)")
+    print("快速检查 (v7)")
     print("=" * 70)
+
     key_averages = prof.key_averages()
 
-    # 同步检查：item/synchronize
-    sync_ops = [
-        it for it in key_averages
-        if ("aten::item" in it.key.lower())
-        or ("cudaDeviceSynchronize" in it.key)
-        or ("cudaStreamSynchronize" in it.key)
-        or ("synchronize" in it.key.lower())
-    ]
-    if sync_ops:
-        print("⚠️  同步相关 op（少量可能是 profiler 自己做统计）:")
-        for op in sync_ops[:10]:
-            print(f"    - {op.key}: count={op.count}, cpu_total={op.cpu_time_total/1000:.3f}ms")
+    sync_hits = [it for it in key_averages if "cudaDeviceSynchronize" in it.key or it.key == "aten::item"]
+    if sync_hits:
+        print("⚠️  同步相关 op（少量可能是 profiler 自己统计造成）:")
+        for it in sync_hits:
+            print(f"    - {it.key}: count={it.count}, cpu_total={it.cpu_time_total/1000:.3f}ms")
     else:
-        print("✅ 未发现明显同步相关 op")
+        print("✅ 未发现显式同步相关 op")
 
-    # 布局转换：只抓“真正转换”关键字，别把 NHWC 正常 kernel 当转换
-    layout_keys = ("convertTensor", "nchwToNhwc", "nhwcToNchw", "FoldedNhwc", "foldedNhwc")
-    layout_ops = [it for it in key_averages if any(k in it.key for k in layout_keys)]
-    if layout_ops:
+    # “真实转换”重点看这些：convertTensor / nchwToNhwc / nhwcToNchw
+    convert_hits = [it for it in key_averages if
+                    ("convertTensor" in it.key) or
+                    ("nchwToNhwc" in it.key) or
+                    ("nhwcToNchw" in it.key)]
+    if convert_hits:
         print("⚠️  检测到真实布局/格式转换 op:")
-        for op in layout_ops[:10]:
-            cuda_self = getattr(op, "self_cuda_time_total", 0) or 0
-            print(f"    - {op.key}: count={op.count}, self_cuda={cuda_self/1000:.3f}ms")
+        for it in convert_hits[:10]:
+            cuda_self = getattr(it, "self_cuda_time_total", 0) or 0
+            print(f"    - {it.key}: count={it.count}, self_cuda={cuda_self/1000:.3f}ms")
     else:
         print("✅ 未发现 convertTensor / nchw<->nhwc 等真实转换 op")
 
@@ -280,13 +309,18 @@ def run_profiler(
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="PyTorch Profiler - 训练瓶颈分析 (v6)")
+    p = argparse.ArgumentParser(
+        description="PyTorch Profiler - 训练瓶颈分析 (v7)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p.add_argument("--batch_size", type=int, default=512)
     p.add_argument("--num_workers", type=int, default=20)
     p.add_argument("--num_batches", type=int, default=20)
     p.add_argument("--warmup_batches", type=int, default=5)
+
     p.add_argument("--record_shapes", action="store_true")
     p.add_argument("--profile_memory", action="store_true")
+
     p.add_argument("--disable_amp", action="store_true")
 
     p.add_argument("--pin_memory", action="store_true", default=True)
@@ -300,15 +334,10 @@ def parse_args():
     p.add_argument("--drop_last", action="store_true", default=True)
     p.add_argument("--no_drop_last", action="store_false", dest="drop_last")
 
-    p.add_argument("--tf32", action="store_true", default=True)
-    p.add_argument("--no_tf32", action="store_false", dest="tf32")
-
-    p.add_argument("--deterministic", action="store_true", default=False)
-
-    p.add_argument("--channels_last", action="store_true", default=True)
-    p.add_argument("--no_channels_last", action="store_false", dest="channels_last")
-    p.add_argument("--force_channels_last", action="store_true", default=False,
-                   help="Force channels_last even when --disable_amp (FP32)")
+    # v7 新增
+    p.add_argument("--no_tf32", action="store_true", help="Disable TF32 (CUDA matmul + cuDNN)")
+    p.add_argument("--deterministic", action="store_true", help="Enable deterministic algorithms (slower)")
+    p.add_argument("--force_channels_last", action="store_true", help="Force channels_last even when --disable_amp")
 
     return p.parse_args()
 
@@ -327,8 +356,7 @@ if __name__ == "__main__":
         persistent_workers=args.persistent_workers,
         prefetch_factor=args.prefetch_factor,
         drop_last=args.drop_last,
-        tf32=args.tf32,
+        no_tf32=args.no_tf32,
         deterministic=args.deterministic,
-        channels_last=args.channels_last,
         force_channels_last=args.force_channels_last,
     )
