@@ -312,6 +312,91 @@ def get_val_transform(include_normalize: bool = False) -> transforms.Compose:
     return transforms.Compose(transform_list)
 
 
+def get_randaugment_transform(
+    n: int = 2,
+    m: int = 9,
+    include_baseline: bool = True,
+    include_normalize: bool = False,
+) -> transforms.Compose:
+    """Return RandAugment transform for SOTA comparison.
+    
+    Args:
+        n: Number of augmentation operations to apply.
+        m: Magnitude of augmentation (0-30 scale).
+        include_baseline: If True, include S0 baseline transforms.
+        include_normalize: If True, add Normalize transform at the end.
+        
+    Returns:
+        Composed transform pipeline with RandAugment.
+    """
+    transform_list = []
+    
+    if include_baseline:
+        transform_list.extend([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(p=0.5),
+        ])
+    
+    # RandAugment from torchvision
+    transform_list.append(transforms.RandAugment(num_ops=n, magnitude=m))
+    transform_list.append(transforms.ToTensor())
+    
+    if include_normalize:
+        transform_list.append(
+            transforms.Normalize(mean=CIFAR100_MEAN, std=CIFAR100_STD)
+        )
+    
+    return transforms.Compose(transform_list)
+
+
+def get_cutout_transform(
+    n_holes: int = 1,
+    length: int = 16,
+    include_baseline: bool = True,
+    include_normalize: bool = False,
+) -> transforms.Compose:
+    """Return Cutout transform for SOTA comparison.
+    
+    Args:
+        n_holes: Number of holes to cut out.
+        length: Length of each square hole.
+        include_baseline: If True, include S0 baseline transforms.
+        include_normalize: If True, add Normalize transform at the end.
+        
+    Returns:
+        Composed transform pipeline with Cutout (RandomErasing).
+    """
+    transform_list = []
+    
+    if include_baseline:
+        transform_list.extend([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(p=0.5),
+        ])
+    
+    transform_list.append(transforms.ToTensor())
+    
+    # Use RandomErasing as Cutout implementation
+    # scale: area ratio of erasing region
+    # ratio: aspect ratio of erasing region
+    scale = (length * length) / (32 * 32)  # For 32x32 images
+    transform_list.append(
+        transforms.RandomErasing(
+            p=1.0,  # Always apply
+            scale=(scale * 0.8, scale * 1.2),  # Slight variation
+            ratio=(0.8, 1.2),  # Nearly square
+            value=0,  # Fill with black
+        )
+    )
+    
+    if include_normalize:
+        transform_list.append(
+            transforms.Normalize(mean=CIFAR100_MEAN, std=CIFAR100_STD)
+        )
+    
+    return transforms.Compose(transform_list)
+
+
 # =============================================================================
 # Single Operation Application
 # =============================================================================
