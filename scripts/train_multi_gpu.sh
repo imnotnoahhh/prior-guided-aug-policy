@@ -105,22 +105,22 @@ echo "日志目录: ${LOG_DIR}"
 echo "输出目录: ${OUTPUT_DIR}"
 echo ""
 echo "早停策略 (v5.4 - 统一 200ep):"
-echo "  Phase A: min_epochs=80, patience=80"
+echo "  Phase A: min_epochs=60, patience=60"
 echo "  Phase B: ASHA 多轮淘汰 (rungs=30,80,200, keep top 1/3)"
-echo "  Phase C: min_epochs=80, patience=80 (与 A/B 一致)"
-echo "  Phase D: min_epochs=80, patience=80 (与 A/B 一致)"
+echo "  Phase C: min_epochs=60, patience=60 (与 A/B 一致)"
+echo "  Phase D: min_epochs=60, patience=60 (与 A/B 一致)"
 
 # -----------------------------------------------------------------------------
 # Baseline (单 GPU)
 # -----------------------------------------------------------------------------
 print_header "[1/5] Baseline 训练 (单 GPU)"
-echo "配置: 200 epochs, min_epochs=100, patience=30"
+echo "配置: 200 epochs, min_epochs=60, patience=60"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${SINGLE_GPU} python run_baseline.py \
     --epochs 200 \
-    --min_epochs 100 \
-    --early_stop_patience 30 \
+    --min_epochs 60 \
+    --early_stop_patience 60 \
     2>&1 | tee "${LOG_DIR}/baseline_${TIMESTAMP}.log"
 
 END_TIME=$(date +%s)
@@ -143,8 +143,8 @@ OPS_GPU3="RandomErasing,GaussianNoise"
 CUDA_VISIBLE_DEVICES=0 nohup python -u main_phase_a.py \
     --epochs 200 \
     --n_samples 32 \
-    --min_epochs 100 \
-    --early_stop_patience 30 \
+    --min_epochs 60 \
+    --early_stop_patience 60 \
     --ops ${OPS_GPU0} \
     --output_dir "${OUTPUT_DIR}/gpu0" \
     --num_workers 6 \
@@ -153,8 +153,8 @@ CUDA_VISIBLE_DEVICES=0 nohup python -u main_phase_a.py \
 CUDA_VISIBLE_DEVICES=1 nohup python -u main_phase_a.py \
     --epochs 200 \
     --n_samples 32 \
-    --min_epochs 100 \
-    --early_stop_patience 30 \
+    --min_epochs 60 \
+    --early_stop_patience 60 \
     --ops ${OPS_GPU1} \
     --output_dir "${OUTPUT_DIR}/gpu1" \
     --num_workers 6 \
@@ -163,8 +163,8 @@ CUDA_VISIBLE_DEVICES=1 nohup python -u main_phase_a.py \
 CUDA_VISIBLE_DEVICES=2 nohup python -u main_phase_a.py \
     --epochs 200 \
     --n_samples 32 \
-    --min_epochs 100 \
-    --early_stop_patience 30 \
+    --min_epochs 60 \
+    --early_stop_patience 60 \
     --ops ${OPS_GPU2} \
     --output_dir "${OUTPUT_DIR}/gpu2" \
     --num_workers 6 \
@@ -173,8 +173,8 @@ CUDA_VISIBLE_DEVICES=2 nohup python -u main_phase_a.py \
 CUDA_VISIBLE_DEVICES=3 nohup python -u main_phase_a.py \
     --epochs 200 \
     --n_samples 32 \
-    --min_epochs 100 \
-    --early_stop_patience 30 \
+    --min_epochs 60 \
+    --early_stop_patience 60 \
     --ops ${OPS_GPU3} \
     --output_dir "${OUTPUT_DIR}/gpu3" \
     --num_workers 6 \

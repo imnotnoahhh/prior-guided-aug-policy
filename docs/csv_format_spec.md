@@ -59,10 +59,10 @@ phase, op_name, magnitude, probability, seed, fold_idx, val_acc, val_loss, top5_
 
 | 阶段 | epochs | 早停策略 | 预期 epochs_run | 预期 early_stopped |
 |------|--------|----------|-----------------|-------------------|
-| Phase A | 200 | min_epochs=80, patience=80 | 160-200 | True/False |
+| Phase A | 200 | min_epochs=60, patience=60 | 120-200 | True/False |
 | Phase B (v5.3) | 30/80/200 | ASHA 多轮淘汰 | 30/80/200 | **N/A** |
-| Phase C | 200 | min_epochs=80, patience=80 | 160-200 | True/False |
-| Phase D | 200 | min_epochs=80, patience=80 | 160-200 | True/False |
+| Phase C | 200 | min_epochs=60, patience=60 | 120-200 | True/False |
+| Phase D | 200 | min_epochs=60, patience=60 | 120-200 | True/False |
 
 ## 论文写作用途
 

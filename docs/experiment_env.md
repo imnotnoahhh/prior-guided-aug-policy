@@ -57,7 +57,7 @@ python run_baseline.py \
     --epochs 200 \
     --min_epochs 60 \
     --early_stop_patience 60 \
-    --batch_size 64 \
+    --batch_size 128 \
     --seed 42 \
     --num_workers 6
 ```

@@ -137,7 +137,7 @@ def train_single_config(
     
     v5 CHANGED: Added probability parameter for stochastic application.
     v5.1 CHANGED: Updated early stopping to monitor val_acc with min_epochs.
-    v5.2 CHANGED: Large batch training (bs=512, lr=0.4, warmup=5).
+    v5.2 CHANGED: Optimized training (bs=128, lr=0.1, warmup=5, label_smoothing=0.1).
     
     Args:
         op_name: Name of the augmentation operation.
@@ -146,7 +146,7 @@ def train_single_config(
         epochs: Number of training epochs.
         device: Device to train on.
         fold_idx: Which fold to use (default 0 for search).
-        batch_size: Batch size (512 for large-batch training).
+        batch_size: Batch size (default 128).
         num_workers: Number of data loading workers.
         early_stop_patience: Epochs to wait after no improvement. Default 80 for Phase A.
         min_epochs: Minimum epochs before early stopping. Default 80 for Phase A.

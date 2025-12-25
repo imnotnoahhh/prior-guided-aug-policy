@@ -399,21 +399,20 @@ class EarlyStopping:
 def get_optimizer_and_scheduler(
     model: nn.Module,
     total_epochs: int,
-    lr: float = 0.4,
-    weight_decay: float = 1e-3,
+    lr: float = 0.1,
+    weight_decay: float = 5e-3,
     momentum: float = 0.9,
     warmup_epochs: int = 5,
 ) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler]:
     """Create SGD optimizer with warmup + CosineAnnealingLR scheduler.
     
-    Hyperparameters optimized for large-batch training (bs=512).
-    Uses linear scaling rule: batch×8 → lr×8 (0.05→0.4).
+    Hyperparameters per research_plan_v5.md Section 5.
     
     Args:
         model: The model to optimize.
         total_epochs: Total number of training epochs.
-        lr: Learning rate. Default 0.4 (scaled for bs=512).
-        weight_decay: Weight decay. Default 1e-3 (increased for regularization).
+        lr: Learning rate. Default 0.1.
+        weight_decay: Weight decay. Default 5e-3 (increased for regularization).
         momentum: SGD momentum. Default 0.9.
         warmup_epochs: Number of warmup epochs. Default 5.
             Linear warmup from lr/warmup_epochs to lr.
@@ -529,9 +528,9 @@ if __name__ == "__main__":
     optimizer, scheduler = get_optimizer_and_scheduler(model, total_epochs=200, warmup_epochs=5)
     
     assert isinstance(optimizer, torch.optim.SGD), "Expected SGD optimizer"
-    assert optimizer.defaults["lr"] == 0.4, f"Expected lr=0.4, got {optimizer.defaults['lr']}"
+    assert optimizer.defaults["lr"] == 0.1, f"Expected lr=0.1, got {optimizer.defaults['lr']}"
     assert optimizer.defaults["momentum"] == 0.9, "Expected momentum=0.9"
-    assert optimizer.defaults["weight_decay"] == 1e-3, "Expected weight_decay=1e-3"
+    assert optimizer.defaults["weight_decay"] == 5e-3, "Expected weight_decay=5e-3"
     print(f"      Optimizer: {optimizer.__class__.__name__}")
     print(f"      Scheduler: {scheduler.__class__.__name__} (with warmup)")
     print("      ✓ Optimizer and scheduler check passed")

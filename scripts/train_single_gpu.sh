@@ -77,22 +77,22 @@ echo "日志目录: ${LOG_DIR}"
 echo "输出目录: ${OUTPUT_DIR}"
 echo ""
 echo "早停策略 (v5.4 - 统一 200ep):"
-echo "  Phase A: min_epochs=80, patience=80"
+echo "  Phase A: min_epochs=60, patience=60"
 echo "  Phase B: ASHA 多轮淘汰 (rungs=30,80,200, keep top 1/3)"
-echo "  Phase C: min_epochs=80, patience=80 (与 A/B 一致)"
-echo "  Phase D: min_epochs=80, patience=80 (与 A/B 一致)"
+echo "  Phase C: min_epochs=60, patience=60 (与 A/B 一致)"
+echo "  Phase D: min_epochs=60, patience=60 (与 A/B 一致)"
 
 # -----------------------------------------------------------------------------
 # Baseline
 # -----------------------------------------------------------------------------
 print_header "[1/5] Baseline 训练"
-echo "配置: 200 epochs, min_epochs=100, patience=30"
+echo "配置: 200 epochs, min_epochs=60, patience=60"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${GPU_ID} python run_baseline.py \
     --epochs 200 \
-    --min_epochs 100 \
-    --early_stop_patience 30 \
+    --min_epochs 60 \
+    --early_stop_patience 60 \
     2>&1 | tee "${LOG_DIR}/baseline_${TIMESTAMP}.log"
 
 END_TIME=$(date +%s)
@@ -103,14 +103,14 @@ check_success "${OUTPUT_DIR}/baseline_result.csv" "Baseline"
 # Phase A
 # -----------------------------------------------------------------------------
 print_header "[2/5] Phase A 筛选"
-echo "配置: 8 ops × 32 samples × 200 epochs, min_epochs=100, patience=30"
+echo "配置: 8 ops × 32 samples × 200 epochs, min_epochs=60, patience=60"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${GPU_ID} python main_phase_a.py \
     --epochs 200 \
     --n_samples 32 \
-    --min_epochs 100 \
-    --early_stop_patience 30 \
+    --min_epochs 60 \
+    --early_stop_patience 60 \
     --output_dir "${OUTPUT_DIR}" \
     --num_workers 6 \
     2>&1 | tee "${LOG_DIR}/phase_a_${TIMESTAMP}.log"
