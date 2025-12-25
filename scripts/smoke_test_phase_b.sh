@@ -144,8 +144,7 @@ from main_phase_b import (
     load_phase_a_results,
     load_baseline_result,
     get_promoted_ops,
-    get_top_k_configs,
-    build_local_grid,
+    sobol_sample_configs,
     aggregate_results,
 )
 from src.utils import set_seed_deterministic
@@ -179,20 +178,17 @@ print('Promoted ops detection: PASSED')
 # -----------------------------------------------------------------------------
 # Step 5: Phase B dry run
 # -----------------------------------------------------------------------------
-print_step "5" "6" "Phase B dry run (epochs=2, 1 seed, 1 op, 2 grid points)..."
+print_step "5" "6" "Phase B ASHA dry run (n_samples=3, rungs=5,10)..."
 
 # Create a temporary output directory for smoke test
 SMOKE_OUTPUT_DIR="outputs/smoke_phase_b_${TIMESTAMP}"
 mkdir -p "$SMOKE_OUTPUT_DIR"
 
-# Run Phase B with minimal config
+# Run Phase B ASHA with minimal config
 python main_phase_b.py \
-    --epochs 2 \
-    --seeds 42 \
+    --n_samples 3 \
     --ops ColorJitter \
-    --grid_points 2 \
     --output_dir "$SMOKE_OUTPUT_DIR" \
-    --early_stop_patience 40 \
     --dry_run
 
 # -----------------------------------------------------------------------------

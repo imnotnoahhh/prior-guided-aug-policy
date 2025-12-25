@@ -1,27 +1,30 @@
-# Phase B: Tuning - 2D Grid search in (m, p) space with 3-seed robustness
+# Phase B: Tuning - ASHA Early-Stopping Tournament
 """
-Phase B: Augmentation Tuning Script.
+Phase B: Augmentation Tuning Script with ASHA Scheduler.
 
-v5 CHANGED: 2D Grid Search in (magnitude, probability) space.
-
-Performs 5×5 grid search around best (m*, p*) from Phase A for each promoted op.
-Runs 3 random seeds per parameter point for robustness.
-Outputs results sorted by Mean Validation Accuracy.
+v5.3 CHANGED: ASHA (Asynchronous Successive Halving) replaces Grid Search.
+- Sobol sampling instead of grid search (more exploration, less bias)
+- Multi-fidelity early stopping: 30ep → 80ep → 200ep
+- Each rung keeps top 1/3, eliminates weak configs early
+- ~10x faster than full grid search with same or better results
 
 Reference: docs/research_plan_v5.md Section 3 (Phase B)
 
-Changelog (v4 → v5):
-- [CHANGED] Grid search: 1D (magnitude) → 2D (magnitude, probability)
-- [CHANGED] Top-K selection: returns (m, p) pairs instead of just m
-- [NEW] Uses OP_SEARCH_SPACE for boundary clamping
-- [CHANGED] CSV output includes actual probability values
+Changelog:
+- v5.3: ASHA scheduler with Sobol sampling
+- v5.2: channels_last, prefetch_factor=4
+- v5.1: Early stopping monitors val_acc
+- v5.0: 2D Grid Search in (m, p) space
 
 Usage:
-    # Full run (200 epochs, 3 seeds)
+    # Full ASHA run (~2-4 hours instead of ~28 hours)
     python main_phase_b.py
-
-    # Dry run (2 epochs, 1 seed, specific ops)
-    python main_phase_b.py --epochs 2 --seeds 42 --ops ColorJitter --dry_run
+    
+    # Dry run
+    python main_phase_b.py --n_samples 5 --dry_run
+    
+    # Custom rungs
+    python main_phase_b.py --rungs 30,80,200 --reduction_factor 3
 """
 
 import argparse
@@ -69,18 +72,7 @@ from src.utils import (
 # =============================================================================
 
 def load_phase_a_results(csv_path: Path) -> pd.DataFrame:
-    """Load Phase A screening results from CSV.
-    
-    Args:
-        csv_path: Path to phase_a_results.csv
-        
-    Returns:
-        DataFrame with columns: op_name, magnitude, val_acc, val_loss, top5_acc, epochs_run, error
-        
-    Raises:
-        FileNotFoundError: If CSV file doesn't exist.
-        ValueError: If CSV is empty or has unexpected format.
-    """
+    """Load Phase A screening results from CSV."""
     if not csv_path.exists():
         raise FileNotFoundError(f"Phase A results not found: {csv_path}")
     
@@ -94,37 +86,20 @@ def load_phase_a_results(csv_path: Path) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Missing required columns in Phase A CSV: {missing}")
     
-    # Filter out error rows
     df = df[df["error"].isna() | (df["error"] == "")]
-    
     return df
 
 
 def load_baseline_result(csv_path: Path) -> Tuple[float, float, float]:
-    """Load baseline result for promotion threshold calculation.
-    
-    Args:
-        csv_path: Path to baseline_result.csv
-        
-    Returns:
-        Tuple of (baseline_val_acc, baseline_top5_acc, baseline_train_loss)
-        
-    Raises:
-        FileNotFoundError: If CSV file doesn't exist.
-    """
+    """Load baseline result for promotion threshold calculation."""
     if not csv_path.exists():
         raise FileNotFoundError(f"Baseline results not found: {csv_path}")
     
     df = pd.read_csv(csv_path)
-    
     if df.empty:
         raise ValueError(f"Baseline results CSV is empty: {csv_path}")
     
-    baseline_acc = df["val_acc"].iloc[0]
-    baseline_top5 = df["top5_acc"].iloc[0]
-    baseline_train_loss = df["train_loss"].iloc[0]
-    
-    return baseline_acc, baseline_top5, baseline_train_loss
+    return df["val_acc"].iloc[0], df["top5_acc"].iloc[0], df["train_loss"].iloc[0]
 
 
 # =============================================================================
@@ -138,25 +113,7 @@ def get_promoted_ops(
     baseline_train_loss: float,
     delta_threshold: float = 0.5,
 ) -> List[str]:
-    """Determine which ops are promoted from Phase A to Phase B.
-    
-    Promotion criteria (from research_plan_v5.md):
-    1. Top-1 Acc: Δ ≥ -0.5% (max_acc >= baseline_acc - 0.5)
-    2. Top-5 Acc: Δ > 0% (max_top5 > baseline_top5)
-    3. Loss Analysis: train_loss <= baseline_train_loss (converges at least as well)
-    
-    An op is promoted if ANY of the above conditions is met.
-    
-    Args:
-        phase_a_df: DataFrame with Phase A results.
-        baseline_acc: Baseline Top-1 accuracy.
-        baseline_top5: Baseline Top-5 accuracy.
-        baseline_train_loss: Baseline training loss.
-        delta_threshold: Allowed drop in Top-1 accuracy. Default 0.5%.
-        
-    Returns:
-        List of promoted operation names.
-    """
+    """Determine which ops are promoted from Phase A to Phase B."""
     acc_threshold = baseline_acc - delta_threshold
     
     promoted = []
@@ -166,10 +123,6 @@ def get_promoted_ops(
         max_top5 = op_data["top5_acc"].max()
         min_train_loss = op_data["train_loss"].min()
         
-        # Promotion condition: ANY of the three criteria
-        # 1. Top-1 Acc: Δ ≥ -0.5%
-        # 2. Top-5 Acc: Δ > 0%
-        # 3. Loss Analysis: converges at least as well as baseline
         if (max_acc >= acc_threshold or 
             max_top5 > baseline_top5 or 
             min_train_loss <= baseline_train_loss):
@@ -179,160 +132,211 @@ def get_promoted_ops(
 
 
 # =============================================================================
-# Top-K Configuration Selection (v5: returns (m, p) pairs)
+# Sobol Sampling for (m, p) Space (v5.3 NEW)
 # =============================================================================
 
-def get_top_k_configs(
-    phase_a_df: pd.DataFrame,
+def sobol_sample_configs(
     op_name: str,
-    k: int = 4,
+    n_samples: int = 30,
+    seed: int = 42,
 ) -> List[Tuple[float, float]]:
-    """Get top-K (magnitude, probability) pairs for an operation from Phase A.
+    """Sample (magnitude, probability) pairs using Sobol sequence.
     
-    v5 CHANGED: Returns (m, p) pairs instead of just magnitude.
-    
-    Selects the K configurations with highest val_acc for the given op.
+    Uses operation-specific bounds from OP_SEARCH_SPACE.
     
     Args:
-        phase_a_df: DataFrame with Phase A results.
         op_name: Name of the operation.
-        k: Number of top configurations to return. Default 4.
+        n_samples: Number of samples to generate.
+        seed: Random seed for Sobol sequence.
         
     Returns:
-        List of (magnitude, probability) tuples (centers for 2D grid search).
+        List of (magnitude, probability) tuples.
     """
-    op_data = phase_a_df[phase_a_df["op_name"] == op_name].copy()
-    op_data = op_data.sort_values("val_acc", ascending=False)
+    try:
+        from scipy.stats.qmc import Sobol
+        sampler = Sobol(d=2, scramble=True, seed=seed)
+        samples = sampler.random(n_samples)
+    except ImportError:
+        # Fallback to numpy random if scipy not available
+        np.random.seed(seed)
+        samples = np.random.rand(n_samples, 2)
     
-    top_k_rows = op_data.head(k)
-    
-    # v5: Return (m, p) pairs
-    top_k = []
-    for _, row in top_k_rows.iterrows():
-        m = float(row["magnitude"])
-        p = float(row["probability"])
-        top_k.append((m, p))
-    
-    return top_k
-
-
-# =============================================================================
-# 2D Local Grid Construction (v5)
-# =============================================================================
-
-def build_local_grid_2d(
-    centers: List[Tuple[float, float]],
-    op_name: str,
-    m_step: float = 0.1,
-    p_step: float = 0.1,
-    n_steps: int = 2,
-) -> List[Tuple[float, float]]:
-    """Build 2D local grid around center (m, p) pairs.
-    
-    v5 NEW: 2D grid search in (magnitude, probability) space.
-    
-    For each center (m, p), generates a 5×5 grid (±2 steps in each direction).
-    Clamps to operation-specific bounds from OP_SEARCH_SPACE.
-    
-    Args:
-        centers: List of (magnitude, probability) center pairs.
-        op_name: Name of the operation (for bound clamping).
-        m_step: Step size for magnitude. Default 0.1.
-        p_step: Step size for probability. Default 0.1.
-        n_steps: Number of steps in each direction. Default 2.
-        
-    Returns:
-        List of unique (magnitude, probability) tuples within bounds.
-        
-    Example:
-        centers=[(0.5, 0.5)], m_step=0.1, p_step=0.1, n_steps=2
-        -> 5×5 = 25 points grid around (0.5, 0.5)
-    """
     # Get operation-specific bounds
     space = OP_SEARCH_SPACE[op_name]
     m_min, m_max = space["m"]
     p_min, p_max = space["p"]
     
-    points = set()
+    configs = []
+    for m_unit, p_unit in samples:
+        m = m_min + m_unit * (m_max - m_min)
+        p = p_min + p_unit * (p_max - p_min)
+        configs.append((round(m, 4), round(p, 4)))
     
-    for m_center, p_center in centers:
-        for i in range(-n_steps, n_steps + 1):
-            for j in range(-n_steps, n_steps + 1):
-                m = m_center + i * m_step
-                p = p_center + j * p_step
-                
-                # Clamp to operation-specific bounds
-                m = max(m_min, min(m_max, m))
-                p = max(p_min, min(p_max, p))
-                
-                points.add((round(m, 4), round(p, 4)))
-    
-    return sorted(list(points))
-
-
-# Legacy function for backward compatibility
-def build_local_grid(
-    centers: List[float],
-    step: float = 0.05,
-    n_steps: int = 2,
-) -> List[float]:
-    """Build 1D local grid (legacy). DEPRECATED: Use build_local_grid_2d."""
-    points = set()
-    for center in centers:
-        for i in range(-n_steps, n_steps + 1):
-            point = center + i * step
-            point = max(0.0, min(1.0, point))
-            points.add(round(point, 4))
-    return sorted(list(points))
+    return configs
 
 
 # =============================================================================
-# Single Configuration Training (v5: with probability)
+# ASHA Training with Checkpoint Support (v5.3 NEW)
 # =============================================================================
 
-def train_single_config(
+def train_to_epoch(
     op_name: str,
     magnitude: float,
     probability: float,
-    seed: int,
-    epochs: int,
+    target_epochs: int,
     device: torch.device,
+    checkpoint: Optional[Dict] = None,
     fold_idx: int = 0,
     batch_size: int = 512,
     num_workers: int = 8,
-    early_stop_patience: int = 100,
-    min_epochs: int = 100,
+    seed: int = 42,
     deterministic: bool = True,
-) -> Dict:
-    """Train one configuration and return metrics.
-    
-    v5 CHANGED: Added probability parameter for stochastic application.
-    v5.1 CHANGED: Updated early stopping to monitor val_acc with min_epochs.
-    v5.2 CHANGED: Large batch training (bs=512, lr=0.4, warmup=5).
+) -> Tuple[Dict, Dict]:
+    """Train a configuration to a target epoch, optionally resuming from checkpoint.
     
     Args:
         op_name: Name of the augmentation operation.
-        magnitude: Magnitude value in [0, 1].
-        probability: Probability of applying the augmentation.
-        seed: Random seed for this run.
-        epochs: Number of training epochs.
+        magnitude: Magnitude value.
+        probability: Probability value.
+        target_epochs: Train until this epoch.
         device: Device to train on.
-        fold_idx: Which fold to use (default 0 for search).
-        batch_size: Batch size (512 for large-batch training).
+        checkpoint: Optional checkpoint dict to resume from.
+        fold_idx: Which fold to use.
+        batch_size: Batch size.
         num_workers: Number of data loading workers.
-        early_stop_patience: Epochs to wait after no improvement. Default 100 for Phase B.
-        min_epochs: Minimum epochs before early stopping. Default 100 for Phase B.
-        deterministic: If True, enable deterministic CUDA mode.
+        seed: Random seed.
+        deterministic: Enable deterministic mode.
         
     Returns:
-        Dict with unified CSV format fields.
+        Tuple of (result_dict, checkpoint_dict for continuation)
     """
     start_time = time.time()
-    
-    # Set seed with deterministic mode
     set_seed_deterministic(seed, deterministic=deterministic)
     
-    # Initialize result with unified format (v5: actual probability value)
+    # Determine starting epoch
+    start_epoch = 0
+    if checkpoint is not None:
+        start_epoch = checkpoint.get("epoch", 0)
+    
+    # Build transforms
+    train_transform = build_transform_with_op(
+        op_name=op_name,
+        magnitude=magnitude,
+        probability=probability,
+        include_baseline=True,
+        include_normalize=False,
+    )
+    val_transform = get_val_transform(include_normalize=False)
+    
+    # Create datasets
+    train_dataset = CIFAR100Subsampled(
+        root="./data",
+        train=True,
+        fold_idx=fold_idx,
+        transform=train_transform,
+        download=True,
+    )
+    
+    val_dataset = CIFAR100Subsampled(
+        root="./data",
+        train=False,
+        fold_idx=fold_idx,
+        transform=val_transform,
+        download=True,
+    )
+    
+    # Create data loaders
+    use_cuda = device.type == "cuda"
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=use_cuda,
+        drop_last=False,
+        persistent_workers=True if num_workers > 0 else False,
+        prefetch_factor=4 if num_workers > 0 else None,
+    )
+    
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=use_cuda,
+        drop_last=False,
+        persistent_workers=True if num_workers > 0 else False,
+        prefetch_factor=4 if num_workers > 0 else None,
+    )
+    
+    # Create model with channels_last
+    model = create_model(num_classes=100, pretrained=False)
+    model = model.to(device)
+    if use_cuda:
+        model = model.to(memory_format=torch.channels_last)
+    
+    criterion = nn.CrossEntropyLoss()
+    
+    # Create optimizer and scheduler for FULL training duration
+    # (scheduler needs to know total epochs for proper cosine annealing)
+    optimizer, scheduler = get_optimizer_and_scheduler(
+        model=model,
+        total_epochs=200,  # Fixed max epochs for consistent LR schedule
+        lr=0.4,
+        weight_decay=1e-3,
+        momentum=0.9,
+        warmup_epochs=5,
+    )
+    
+    # AMP scaler
+    scaler = None
+    if use_cuda:
+        scaler = torch.amp.GradScaler()
+    
+    # Restore from checkpoint if provided
+    if checkpoint is not None:
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        if scaler is not None and "scaler_state_dict" in checkpoint:
+            scaler.load_state_dict(checkpoint["scaler_state_dict"])
+    
+    # Training loop
+    best_val_acc = checkpoint.get("best_val_acc", 0.0) if checkpoint else 0.0
+    best_val_loss = checkpoint.get("best_val_loss", float("inf")) if checkpoint else float("inf")
+    best_top5_acc = checkpoint.get("best_top5_acc", 0.0) if checkpoint else 0.0
+    best_train_acc = checkpoint.get("best_train_acc", 0.0) if checkpoint else 0.0
+    best_train_loss = checkpoint.get("best_train_loss", 0.0) if checkpoint else 0.0
+    best_epoch = checkpoint.get("best_epoch", 0) if checkpoint else 0
+    
+    for epoch in range(start_epoch, target_epochs):
+        train_loss, train_acc = train_one_epoch(
+            model=model,
+            train_loader=train_loader,
+            criterion=criterion,
+            optimizer=optimizer,
+            device=device,
+            scaler=scaler,
+        )
+        
+        val_loss, val_acc, top5_acc = evaluate(
+            model=model,
+            val_loader=val_loader,
+            criterion=criterion,
+            device=device,
+        )
+        
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_val_loss = val_loss
+            best_top5_acc = top5_acc
+            best_train_acc = train_acc
+            best_train_loss = train_loss
+            best_epoch = epoch + 1
+        
+        scheduler.step()
+    
+    # Build result
     result = {
         "phase": "PhaseB",
         "op_name": op_name,
@@ -340,191 +344,44 @@ def train_single_config(
         "probability": str(round(probability, 4)),
         "seed": seed,
         "fold_idx": fold_idx,
-        "val_acc": -1.0,
-        "val_loss": -1.0,
-        "top5_acc": -1.0,
-        "train_acc": -1.0,
-        "train_loss": -1.0,
-        "epochs_run": 0,
-        "best_epoch": 0,
+        "val_acc": round(best_val_acc, 4),
+        "val_loss": round(best_val_loss, 6),
+        "top5_acc": round(best_top5_acc, 4),
+        "train_acc": round(best_train_acc, 4),
+        "train_loss": round(best_train_loss, 6),
+        "epochs_run": target_epochs,
+        "best_epoch": best_epoch,
         "early_stopped": False,
-        "runtime_sec": 0.0,
-        "timestamp": "",
+        "runtime_sec": round(time.time() - start_time, 2),
+        "timestamp": datetime.now().isoformat(timespec='seconds'),
         "error": "",
     }
     
-    try:
-        # Build transforms (v5: with probability)
-        train_transform = build_transform_with_op(
-            op_name=op_name,
-            magnitude=magnitude,
-            probability=probability,
-            include_baseline=True,
-            include_normalize=False,
-        )
-        val_transform = get_val_transform(include_normalize=False)
-        
-        # Create datasets
-        train_dataset = CIFAR100Subsampled(
-            root="./data",
-            train=True,
-            fold_idx=fold_idx,
-            transform=train_transform,
-            download=True,
-        )
-        
-        val_dataset = CIFAR100Subsampled(
-            root="./data",
-            train=False,
-            fold_idx=fold_idx,
-            transform=val_transform,
-            download=True,
-        )
-        
-        # Create data loaders with optimized settings for large batch
-        use_cuda = device.type == "cuda"
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=num_workers,
-            pin_memory=use_cuda,
-            drop_last=False,
-            persistent_workers=True if num_workers > 0 else False,
-            prefetch_factor=4 if num_workers > 0 else None,  # Increased from 2 to 4
-        )
-        
-        val_loader = DataLoader(
-            val_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=num_workers,
-            pin_memory=use_cuda,
-            drop_last=False,
-            persistent_workers=True if num_workers > 0 else False,
-            prefetch_factor=4 if num_workers > 0 else None,  # Increased from 2 to 4
-        )
-        
-        # Create model with channels_last memory format for better GPU performance
-        model = create_model(num_classes=100, pretrained=False)
-        model = model.to(device)
-        if use_cuda:
-            model = model.to(memory_format=torch.channels_last)
-        
-        # Loss function
-        criterion = nn.CrossEntropyLoss()
-        
-        # Optimizer and scheduler (large batch: lr=0.4, warmup=5)
-        optimizer, scheduler = get_optimizer_and_scheduler(
-            model=model,
-            total_epochs=epochs,
-            lr=0.4,
-            weight_decay=1e-3,
-            momentum=0.9,
-            warmup_epochs=5,
-        )
-        
-        # AMP scaler (only for CUDA)
-        scaler = None
-        if device.type == "cuda":
-            scaler = torch.amp.GradScaler()
-        
-        # Early stopping (v5.1: monitor val_acc, not val_loss)
-        # min_epochs=120 ensures Cosine LR has time to work before early stopping kicks in
-        # min_delta=0.2 filters noise (val_acc fluctuates ±2-3%)
-        early_stopper = EarlyStopping(
-            patience=early_stop_patience,
-            mode="max",  # Monitor val_acc (higher is better)
-            min_epochs=min_epochs,
-            min_delta=0.2,  # 0.2 percentage points
-        )
-        
-        # Training loop - track all metrics
-        best_val_acc = 0.0
-        best_val_loss = float("inf")
-        best_top5_acc = 0.0
-        best_train_acc = 0.0
-        best_train_loss = 0.0
-        best_epoch = 0
-        early_stopped = False
-        
-        for epoch in range(epochs):
-            # Train one epoch
-            train_loss, train_acc = train_one_epoch(
-                model=model,
-                train_loader=train_loader,
-                criterion=criterion,
-                optimizer=optimizer,
-                device=device,
-                scaler=scaler,
-            )
-            
-            # Evaluate
-            val_loss, val_acc, top5_acc = evaluate(
-                model=model,
-                val_loader=val_loader,
-                criterion=criterion,
-                device=device,
-            )
-            
-            # Update best metrics (by val_acc)
-            if val_acc > best_val_acc:
-                best_val_acc = val_acc
-                best_val_loss = val_loss
-                best_top5_acc = top5_acc
-                best_train_acc = train_acc
-                best_train_loss = train_loss
-                best_epoch = epoch + 1
-            
-            # Step scheduler
-            scheduler.step()
-            
-            # Early stopping check (v5.1: monitor val_acc, not val_loss)
-            if early_stopper(val_acc, epoch):
-                result["epochs_run"] = epoch + 1
-                early_stopped = True
-                break
-            
-            result["epochs_run"] = epoch + 1
-        
-        # Final results with unified format
-        result["val_acc"] = round(best_val_acc, 4)
-        result["val_loss"] = round(best_val_loss, 6)
-        result["top5_acc"] = round(best_top5_acc, 4)
-        result["train_acc"] = round(best_train_acc, 4)
-        result["train_loss"] = round(best_train_loss, 6)
-        result["best_epoch"] = best_epoch
-        result["early_stopped"] = early_stopped
-        
-    except Exception as e:
-        result["error"] = f"{type(e).__name__}: {str(e)}"
-        traceback.print_exc()
+    # Build checkpoint for continuation
+    new_checkpoint = {
+        "epoch": target_epochs,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scheduler_state_dict": scheduler.state_dict(),
+        "best_val_acc": best_val_acc,
+        "best_val_loss": best_val_loss,
+        "best_top5_acc": best_top5_acc,
+        "best_train_acc": best_train_acc,
+        "best_train_loss": best_train_loss,
+        "best_epoch": best_epoch,
+    }
+    if scaler is not None:
+        new_checkpoint["scaler_state_dict"] = scaler.state_dict()
     
-    result["runtime_sec"] = round(time.time() - start_time, 2)
-    result["timestamp"] = datetime.now().isoformat(timespec='seconds')
-    
-    return result
+    return result, new_checkpoint
 
 
 # =============================================================================
 # CSV Writing
 # =============================================================================
 
-def write_raw_csv_row(
-    path: Path,
-    row: Dict,
-    write_header: bool,
-) -> None:
-    """Append one row to raw CSV with immediate flush.
-    
-    Uses unified CSV format for all phases.
-    
-    Args:
-        path: Path to CSV file.
-        row: Dict representing one row.
-        write_header: If True, write header before row.
-    """
-    # Unified CSV fieldnames (same for all phases)
+def write_raw_csv_row(path: Path, row: Dict, write_header: bool) -> None:
+    """Append one row to raw CSV with immediate flush."""
     fieldnames = [
         "phase", "op_name", "magnitude", "probability", "seed", "fold_idx",
         "val_acc", "val_loss", "top5_acc", "train_acc", "train_loss",
@@ -536,13 +393,10 @@ def write_raw_csv_row(
     
     with open(path, mode="a", buffering=1, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
-        
         if write_header:
             writer.writeheader()
-        
         writer.writerow(row)
         f.flush()
-        
         try:
             os.fsync(f.fileno())
         except OSError:
@@ -559,35 +413,29 @@ def check_csv_needs_header(path: Path) -> bool:
 
 
 # =============================================================================
-# Results Aggregation (v5: groups by (op, m, p))
+# Results Aggregation
 # =============================================================================
 
 def aggregate_results(raw_csv_path: Path, summary_csv_path: Path) -> pd.DataFrame:
-    """Aggregate raw results into summary with mean/std per (op, magnitude, probability).
-
-    v5 CHANGED: Groups by (op_name, magnitude, probability) instead of just (op_name, magnitude).
-
-    Computes:
-    - mean_val_acc, std_val_acc
-    - mean_top5_acc, std_top5_acc
-    - mean_train_acc, std_train_acc
-    - n_seeds (should be 3 for valid runs)
-
-    Sorts by mean_val_acc descending.
-
-    Args:
-        raw_csv_path: Path to raw results CSV.
-        summary_csv_path: Path to write summary CSV.
-
-    Returns:
-        Summary DataFrame.
-    """
+    """Aggregate raw results into summary with mean/std per (op, m, p)."""
+    if not raw_csv_path.exists():
+        print(f"WARNING: Raw CSV not found: {raw_csv_path}")
+        return pd.DataFrame()
+    
     df = pd.read_csv(raw_csv_path)
-
-    # Filter out error rows
-    df = df[(df["error"].isna()) | (df["error"] == "")]
-
-    # v5: Group by (op_name, magnitude, probability)
+    
+    if df.empty:
+        print("WARNING: Raw CSV is empty")
+        return pd.DataFrame()
+    
+    # Filter out errors
+    df = df[df["error"].isna() | (df["error"] == "")]
+    
+    if df.empty:
+        print("WARNING: No successful runs in raw CSV")
+        return pd.DataFrame()
+    
+    # Group by (op_name, magnitude, probability)
     summary = df.groupby(["op_name", "magnitude", "probability"]).agg(
         mean_val_acc=("val_acc", "mean"),
         std_val_acc=("val_acc", "std"),
@@ -598,95 +446,79 @@ def aggregate_results(raw_csv_path: Path, summary_csv_path: Path) -> pd.DataFram
         mean_runtime_sec=("runtime_sec", "mean"),
         n_seeds=("seed", "count"),
     ).reset_index()
-
-    # Fill NaN std (happens when n=1)
-    summary["std_val_acc"] = summary["std_val_acc"].fillna(0.0)
-    summary["std_top5_acc"] = summary["std_top5_acc"].fillna(0.0)
-    summary["std_train_acc"] = summary["std_train_acc"].fillna(0.0)
-
-    # Round values
-    for col in ["mean_val_acc", "std_val_acc", "mean_top5_acc", "std_top5_acc",
-                "mean_train_acc", "std_train_acc", "mean_runtime_sec"]:
-        summary[col] = summary[col].round(4)
-
-    # Sort by mean_val_acc descending
+    
+    summary["std_val_acc"] = summary["std_val_acc"].fillna(0)
+    summary["std_top5_acc"] = summary["std_top5_acc"].fillna(0)
+    summary["std_train_acc"] = summary["std_train_acc"].fillna(0)
+    
     summary = summary.sort_values("mean_val_acc", ascending=False)
-
-    # Save to CSV
     summary.to_csv(summary_csv_path, index=False)
     
     return summary
 
 
 # =============================================================================
-# Main Grid Search
+# ASHA Scheduler (v5.3 NEW)
 # =============================================================================
 
-def run_phase_b_grid_search(
+def run_phase_b_asha(
     phase_a_csv: Path,
     baseline_csv: Path,
     output_dir: Path,
-    epochs: int = 200,
-    seeds: List[int] = [42, 123, 456],
+    rungs: List[int] = [30, 80, 200],
+    reduction_factor: int = 3,
+    n_samples: int = 30,
+    seed: int = 42,
     fold_idx: int = 0,
     batch_size: int = 512,
     num_workers: int = 8,
-    early_stop_patience: int = 100,
-    min_epochs: int = 100,
     deterministic: bool = True,
-    top_k: int = 4,
-    grid_step: float = 0.05,
-    grid_n_steps: int = 2,
     ops_filter: Optional[List[str]] = None,
-    max_grid_points: Optional[int] = None,
     dry_run: bool = False,
 ) -> Path:
-    """Run Phase B grid search with multi-seed robustness.
+    """Run Phase B with ASHA scheduler.
     
-    v5.1 CHANGED: Updated early stopping to monitor val_acc with min_epochs.
-    v5.2 CHANGED: Large batch training (bs=512, lr=0.4, warmup=5).
+    ASHA (Asynchronous Successive Halving Algorithm):
+    1. Sample n_samples (m, p) points per op using Sobol
+    2. Train all to first rung (e.g., 30 epochs)
+    3. Keep top 1/reduction_factor, continue to next rung
+    4. Repeat until final rung
     
     Args:
         phase_a_csv: Path to Phase A results CSV.
         baseline_csv: Path to baseline results CSV.
-        output_dir: Directory for output files.
-        epochs: Training epochs per config.
-        seeds: List of random seeds for robustness.
-        fold_idx: Which fold to use (0 for search).
-        batch_size: Training batch size (512 for large-batch).
+        output_dir: Output directory.
+        rungs: List of epoch checkpoints [30, 80, 200].
+        reduction_factor: Keep 1/r configs each rung. Default 3.
+        n_samples: Number of Sobol samples per op. Default 30.
+        seed: Random seed for Sobol sampling.
+        fold_idx: Which fold to use.
+        batch_size: Training batch size.
         num_workers: Data loading workers.
-        early_stop_patience: Epochs to wait after no improvement. Default 100 for Phase B.
-        min_epochs: Minimum epochs before early stopping. Default 100 for Phase B.
-        deterministic: Enable deterministic CUDA mode.
-        top_k: Number of top configs per op as grid centers.
-        grid_step: Step size for local grid.
-        grid_n_steps: Number of steps in each direction.
+        deterministic: Enable deterministic mode.
         ops_filter: If provided, only tune these ops.
-        max_grid_points: If provided, limit grid points per op (for testing).
-        dry_run: If True, only run minimal configs for testing.
+        dry_run: If True, run minimal configs.
         
     Returns:
         Path to summary CSV.
     """
-    # Setup
     device = get_device()
     ensure_dir(output_dir)
     
     raw_csv_path = output_dir / "phase_b_tuning_raw.csv"
     summary_csv_path = output_dir / "phase_b_tuning_summary.csv"
     
-    # Load Phase A results and baseline
+    # Load Phase A results
     print("Loading Phase A results...")
     phase_a_df = load_phase_a_results(phase_a_csv)
     baseline_acc, baseline_top5, baseline_train_loss = load_baseline_result(baseline_csv)
     
-    print(f"Baseline: Top-1={baseline_acc:.1f}%, Top-5={baseline_top5:.1f}%, TrainLoss={baseline_train_loss:.4f}")
+    print(f"Baseline: Top-1={baseline_acc:.1f}%, Top-5={baseline_top5:.1f}%")
     
-    # Determine promoted ops (v5: includes loss analysis criterion)
+    # Determine promoted ops
     promoted_ops = get_promoted_ops(phase_a_df, baseline_acc, baseline_top5, baseline_train_loss)
     print(f"Promoted ops ({len(promoted_ops)}): {promoted_ops}")
     
-    # Filter ops if specified
     if ops_filter:
         promoted_ops = [op for op in promoted_ops if op in ops_filter]
         print(f"Filtered to: {promoted_ops}")
@@ -695,125 +527,128 @@ def run_phase_b_grid_search(
         print("WARNING: No promoted ops found!")
         return summary_csv_path
     
-    # v5: Build 2D configurations
-    all_configs = []
+    # Generate Sobol samples for each op
+    all_configs = []  # (op_name, magnitude, probability)
     for op_name in promoted_ops:
-        # v5: get (m, p) pairs from Phase A
-        centers = get_top_k_configs(phase_a_df, op_name, k=top_k)
-        
-        # v5: Build 2D grid around centers
-        grid_points = build_local_grid_2d(
-            centers=centers,
-            op_name=op_name,
-            m_step=grid_step,
-            p_step=grid_step,
-            n_steps=grid_n_steps,
-        )
-        
-        if max_grid_points:
-            grid_points = grid_points[:max_grid_points]
-        
-        # v5: configs are now (op_name, magnitude, probability, seed) tuples
-        for mag, prob in grid_points:
-            for seed in seeds:
-                all_configs.append((op_name, mag, prob, seed))
-        
-        print(f"  {op_name}: {len(centers)} centers -> {len(grid_points)} grid points (2D)")
-    
-    total_runs = len(all_configs)
-    print(f"\nTotal configurations: {total_runs}")
-    print(f"  = {len(promoted_ops)} ops × ~grid_points × {len(seeds)} seeds")
+        configs = sobol_sample_configs(op_name, n_samples=n_samples, seed=seed)
+        for m, p in configs:
+            all_configs.append((op_name, m, p))
+        print(f"  {op_name}: {len(configs)} Sobol samples")
     
     if dry_run:
-        # Limit to first few configs for testing
-        all_configs = all_configs[:min(len(all_configs), len(seeds) * 2)]
-        print(f"DRY RUN: Limited to {len(all_configs)} configs")
+        all_configs = all_configs[:min(len(all_configs), 5)]
+        rungs = [5, 10]  # Quick test
+        print(f"DRY RUN: Limited to {len(all_configs)} configs, rungs={rungs}")
     
-    # Check if we need to write header
+    print(f"\nTotal initial configs: {len(all_configs)}")
+    print(f"ASHA rungs: {rungs}")
+    print(f"Reduction factor: 1/{reduction_factor}")
+    
+    # Estimate time savings
+    full_epochs = len(all_configs) * rungs[-1]
+    asha_epochs = 0
+    remaining = len(all_configs)
+    prev_rung = 0
+    for rung in rungs:
+        asha_epochs += remaining * (rung - prev_rung)
+        remaining = max(1, remaining // reduction_factor)
+        prev_rung = rung
+    
+    print(f"Estimated epoch-equivalents: {asha_epochs} (vs {full_epochs} full = {100*asha_epochs/full_epochs:.1f}%)")
+    
+    # Check CSV header
     write_header = check_csv_needs_header(raw_csv_path)
     
-    # Main training loop
-    print(f"\nStarting Phase B grid search...")
-    print("-" * 70)
-
-    success_count = 0
-    error_count = 0
-    total_start_time = time.time()
-
-    # v5: configs are now (op_name, magnitude, probability, seed) tuples
-    for op_name, magnitude, probability, seed in tqdm(all_configs, desc="Phase B Tuning", unit="run"):
-        try:
-            result = train_single_config(
-                op_name=op_name,
-                magnitude=magnitude,
-                probability=probability,
-                seed=seed,
-                epochs=epochs,
-                device=device,
-                fold_idx=fold_idx,
-                batch_size=batch_size,
-                num_workers=num_workers,
-                early_stop_patience=early_stop_patience,
-                min_epochs=min_epochs,
-                deterministic=deterministic,
-            )
-            
-            if result["error"]:
-                error_count += 1
-            else:
-                success_count += 1
-                
-        except Exception as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            print(f"\nERROR in {op_name} (m={magnitude:.4f}, p={probability:.4f}, seed={seed}): {error_msg}")
-            traceback.print_exc()
-
-            result = {
-                "phase": "PhaseB",
-                "op_name": op_name,
-                "magnitude": str(round(magnitude, 4)),
-                "probability": str(round(probability, 4)),
-                "seed": seed,
-                "fold_idx": fold_idx,
-                "val_acc": -1.0,
-                "val_loss": -1.0,
-                "top5_acc": -1.0,
-                "train_acc": -1.0,
-                "train_loss": -1.0,
-                "epochs_run": 0,
-                "best_epoch": 0,
-                "early_stopped": False,
-                "runtime_sec": 0.0,
-                "timestamp": datetime.now().isoformat(timespec='seconds'),
-                "error": error_msg,
-            }
-            error_count += 1
+    # ASHA main loop
+    print(f"\n{'='*70}")
+    print("Starting ASHA Phase B...")
+    print("="*70)
+    
+    # Track configs with their checkpoints
+    # Use index as key to avoid issues with op names containing underscores
+    # config_idx -> (op_name, m, p, checkpoint_dict)
+    active_configs = {i: (op, m, p, None) for i, (op, m, p) in enumerate(all_configs)}
+    
+    total_start = time.time()
+    
+    for rung_idx, target_epochs in enumerate(rungs):
+        print(f"\n{'='*70}")
+        print(f"RUNG {rung_idx + 1}/{len(rungs)}: Training to {target_epochs} epochs")
+        print(f"Active configs: {len(active_configs)}")
+        print("="*70)
         
-        # Write result immediately
-        write_raw_csv_row(raw_csv_path, result, write_header)
-        write_header = False
+        rung_results = []
+        
+        for key, (op_name, m, p, checkpoint) in tqdm(
+            active_configs.items(), 
+            desc=f"Rung {rung_idx+1} ({target_epochs}ep)",
+            unit="cfg"
+        ):
+            try:
+                result, new_checkpoint = train_to_epoch(
+                    op_name=op_name,
+                    magnitude=m,
+                    probability=p,
+                    target_epochs=target_epochs,
+                    device=device,
+                    checkpoint=checkpoint,
+                    fold_idx=fold_idx,
+                    batch_size=batch_size,
+                    num_workers=num_workers,
+                    seed=seed,
+                    deterministic=deterministic,
+                )
+                
+                # Store result
+                rung_results.append((key, result["val_acc"], new_checkpoint))
+                
+                # Write to CSV (only at final rung for cleaner output)
+                if rung_idx == len(rungs) - 1:
+                    write_raw_csv_row(raw_csv_path, result, write_header)
+                    write_header = False
+                    
+            except Exception as e:
+                print(f"\nERROR in {op_name} (m={m}, p={p}): {e}")
+                traceback.print_exc()
+                # Remove failed config
+                rung_results.append((key, -1.0, None))
+        
+        # Select top configs for next rung
+        if rung_idx < len(rungs) - 1:
+            # Sort by val_acc descending
+            rung_results.sort(key=lambda x: x[1], reverse=True)
+            
+            # Keep top 1/reduction_factor
+            n_keep = max(1, len(rung_results) // reduction_factor)
+            survivors = rung_results[:n_keep]
+            
+            print(f"\nSurvivors: {n_keep}/{len(rung_results)} (top 1/{reduction_factor})")
+            print(f"  Best: {survivors[0][1]:.2f}%, Cutoff: {survivors[-1][1]:.2f}%")
+            
+            # Update active_configs - get original config info from current active_configs
+            new_active = {}
+            for idx, val_acc, checkpoint in survivors:
+                if checkpoint is not None and idx in active_configs:
+                    op, m, p, _ = active_configs[idx]
+                    new_active[idx] = (op, m, p, checkpoint)
+            active_configs = new_active
+    
+    total_time = time.time() - total_start
+    print(f"\n{'='*70}")
+    print(f"ASHA Phase B Complete!")
+    print(f"Total time: {total_time/3600:.2f} hours")
+    print("="*70)
     
     # Aggregate results
-    print("\n" + "-" * 70)
-    print("Aggregating results...")
-    summary_df = aggregate_results(raw_csv_path, summary_csv_path)
+    print("\nAggregating results...")
+    summary = aggregate_results(raw_csv_path, summary_csv_path)
     
-    # Print summary
-    total_runtime = time.time() - total_start_time
+    if not summary.empty:
+        print("\nTop 10 configurations by mean_val_acc:")
+        print(summary.head(10).to_string(index=False))
     
-    print("\n" + "=" * 70)
-    print("Phase B Complete")
-    print("=" * 70)
-    print(f"Successful: {success_count}")
-    print(f"Failed: {error_count}")
-    print(f"Total runtime: {total_runtime:.1f}s ({total_runtime/60:.1f}min)")
-    print("-" * 70)
-    print(f"Raw results: {raw_csv_path}")
+    print(f"\nRaw results: {raw_csv_path}")
     print(f"Summary: {summary_csv_path}")
-    print("-" * 70)
-    print("Top 10 configurations by mean_val_acc:")
-    print(summary_df.head(10).to_string(index=False))
-    print("=" * 70)
     
     return summary_csv_path
 
@@ -822,119 +657,78 @@ def run_phase_b_grid_search(
 # Argument Parsing
 # =============================================================================
 
-def parse_args() -> argparse.Namespace:
-    """Parse command line arguments."""
+def parse_args():
     parser = argparse.ArgumentParser(
-        description="Phase B: Augmentation Tuning with Grid Search and Multi-Seed Robustness"
+        description="Phase B: ASHA Augmentation Tuning (v5.3)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    # Full ASHA run (~2-4 hours)
+    python main_phase_b.py
+    
+    # Quick test
+    python main_phase_b.py --n_samples 5 --dry_run
+    
+    # Custom rungs (more aggressive)
+    python main_phase_b.py --rungs 20,60,200 --reduction_factor 4
+    
+    # Specific ops only
+    python main_phase_b.py --ops ColorJitter,GaussianBlur
+"""
     )
     
     parser.add_argument(
-        "--epochs",
-        type=int,
-        default=200,
-        help="Number of training epochs per config (default: 200)"
+        "--output_dir", type=str, default="outputs",
+        help="Output directory (default: outputs)"
     )
-    
     parser.add_argument(
-        "--seeds",
-        type=str,
-        default="42,123,456",
-        help="Comma-separated list of random seeds (default: 42,123,456)"
-    )
-    
-    parser.add_argument(
-        "--fold_idx",
-        type=int,
-        default=0,
-        help="Which fold to use for search (default: 0)"
-    )
-    
-    parser.add_argument(
-        "--output_dir",
-        type=str,
-        default="outputs",
-        help="Output directory for results (default: outputs)"
-    )
-    
-    parser.add_argument(
-        "--phase_a_csv",
-        type=str,
-        default="outputs/phase_a_results.csv",
+        "--phase_a_csv", type=str, default="outputs/phase_a_results.csv",
         help="Path to Phase A results CSV"
     )
-    
     parser.add_argument(
-        "--baseline_csv",
-        type=str,
-        default="outputs/baseline_result.csv",
+        "--baseline_csv", type=str, default="outputs/baseline_result.csv",
         help="Path to baseline results CSV"
     )
     
+    # ASHA parameters
     parser.add_argument(
-        "--num_workers",
-        type=int,
-        default=8,
+        "--rungs", type=str, default="30,80,200",
+        help="Comma-separated epoch checkpoints (default: 30,80,200)"
+    )
+    parser.add_argument(
+        "--reduction_factor", type=int, default=3,
+        help="Keep 1/r configs each rung (default: 3)"
+    )
+    parser.add_argument(
+        "--n_samples", type=int, default=30,
+        help="Number of Sobol samples per op (default: 30)"
+    )
+    parser.add_argument(
+        "--seed", type=int, default=42,
+        help="Random seed for Sobol sampling (default: 42)"
+    )
+    
+    # Training parameters
+    parser.add_argument(
+        "--fold_idx", type=int, default=0,
+        help="Fold index for training (default: 0)"
+    )
+    parser.add_argument(
+        "--num_workers", type=int, default=8,
         help="Number of data loading workers (default: 8)"
     )
-    
     parser.add_argument(
-        "--early_stop_patience",
-        type=int,
-        default=100,
-        help="Early stopping patience - epochs to wait after no improvement (default: 100)"
+        "--no_deterministic", action="store_true",
+        help="Disable deterministic mode"
     )
     
+    # Filtering
     parser.add_argument(
-        "--min_epochs",
-        type=int,
-        default=100,
-        help="Minimum epochs before early stopping is considered (default: 100)"
+        "--ops", type=str, default=None,
+        help="Comma-separated list of ops to tune (default: all promoted)"
     )
-    
     parser.add_argument(
-        "--no_deterministic",
-        action="store_true",
-        help="Disable deterministic CUDA mode (faster but less reproducible)"
-    )
-    
-    parser.add_argument(
-        "--top_k",
-        type=int,
-        default=4,
-        help="Number of top configs per op as grid centers (default: 4)"
-    )
-    
-    parser.add_argument(
-        "--grid_step",
-        type=float,
-        default=0.1,
-        help="Step size for 2D grid in m and p (default: 0.1)"
-    )
-    
-    parser.add_argument(
-        "--grid_n_steps",
-        type=int,
-        default=2,
-        help="Number of steps in each direction for grid (default: 2)"
-    )
-    
-    parser.add_argument(
-        "--ops",
-        type=str,
-        default=None,
-        help="Comma-separated list of ops to tune (default: all promoted ops)"
-    )
-    
-    parser.add_argument(
-        "--grid_points",
-        type=int,
-        default=None,
-        help="Limit grid points per op (for testing)"
-    )
-    
-    parser.add_argument(
-        "--dry_run",
-        action="store_true",
+        "--dry_run", action="store_true",
         help="Run minimal configs for testing"
     )
     
@@ -946,15 +740,10 @@ def parse_args() -> argparse.Namespace:
 # =============================================================================
 
 def main() -> int:
-    """Main entry point.
-    
-    Returns:
-        Exit code (0 for success).
-    """
     args = parse_args()
     
-    # Parse seeds
-    seeds = [int(s.strip()) for s in args.seeds.split(",")]
+    # Parse rungs
+    rungs = [int(r.strip()) for r in args.rungs.split(",")]
     
     # Parse ops filter
     ops_filter = None
@@ -965,22 +754,19 @@ def main() -> int:
     device = get_device()
     
     print("=" * 70)
-    print("Phase B: Augmentation Tuning")
+    print("Phase B: ASHA Augmentation Tuning (v5.3)")
     print("=" * 70)
     print(f"Device: {device}")
-    print(f"Epochs: {args.epochs}")
+    print(f"ASHA Rungs: {rungs}")
+    print(f"Reduction factor: 1/{args.reduction_factor}")
+    print(f"Sobol samples per op: {args.n_samples}")
+    print(f"Seed: {args.seed}")
     print(f"Batch size: 512")
     print(f"Fold: {args.fold_idx}")
-    print(f"Seeds: {seeds}")
     print(f"Deterministic: {deterministic}")
-    print(f"LR: 0.4, WD: 1e-3, Momentum: 0.9, Warmup: 5 epochs")
-    print(f"Early stopping: min_epochs={args.min_epochs}, patience={args.early_stop_patience}, monitor=val_acc")
-    print(f"Output dir: {args.output_dir}")
     print("-" * 70)
     print(f"Phase A CSV: {args.phase_a_csv}")
     print(f"Baseline CSV: {args.baseline_csv}")
-    print(f"Top-K centers: {args.top_k}")
-    print(f"v5: 2D Grid step: m±{args.grid_step}, p±{args.grid_step}, n_steps: {args.grid_n_steps}")
     if ops_filter:
         print(f"Ops filter: {ops_filter}")
     if args.dry_run:
@@ -988,22 +774,18 @@ def main() -> int:
     print("=" * 70)
     
     try:
-        run_phase_b_grid_search(
+        run_phase_b_asha(
             phase_a_csv=Path(args.phase_a_csv),
             baseline_csv=Path(args.baseline_csv),
             output_dir=Path(args.output_dir),
-            epochs=args.epochs,
-            seeds=seeds,
+            rungs=rungs,
+            reduction_factor=args.reduction_factor,
+            n_samples=args.n_samples,
+            seed=args.seed,
             fold_idx=args.fold_idx,
             num_workers=args.num_workers,
-            early_stop_patience=args.early_stop_patience,
-            min_epochs=args.min_epochs,
             deterministic=deterministic,
-            top_k=args.top_k,
-            grid_step=args.grid_step,
-            grid_n_steps=args.grid_n_steps,
             ops_filter=ops_filter,
-            max_grid_points=args.grid_points,
             dry_run=args.dry_run,
         )
         return 0

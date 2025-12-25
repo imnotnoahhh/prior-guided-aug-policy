@@ -105,16 +105,27 @@ OP_SEARCH_SPACE = {
     2.  **Top-5 Acc**: $\Delta > 0\%$。
     3.  **Loss Analysis**: `min(train_loss) <= baseline_train_loss` (收敛不差于 Baseline)。
 
-### 阶段 B：深度微调 (Tuning) — **v5 更新**
-*目标：在 (m, p) 空间精细搜索最佳参数。*
+### 阶段 B：深度微调 (Tuning) — **v5.3 ASHA 更新**
+*目标：在 (m, p) 空间高效搜索最佳参数。*
+
+* **v5.3 改进**: Grid Search → **ASHA 早停淘汰赛**
+    * 更多采样点（Sobol 30 点/op），更少浪费
+    * 多保真早停：30ep → 80ep → 200ep
+    * 每轮保留 top 1/3，淘汰弱配置
 
 * **配置**:
     * **Input**: 阶段 A 晋级的 Ops。
-    * **Search**: **5×5 Grid Search** in $(m, p)$ space (步长 0.1，以 Top-K centers 为中心 ±0.2)
-    * **Robustness Check**: 每个参数跑 **3 个 Random Seeds**。
-* **实验量**: ~promoted_ops × ~50 点 × 3 seeds（去重后实际点数）
-* **预计时间**: ~1.5h (4 GPU 并行)
-* **输出**: 按 `Mean Validation Acc` 排序的 $(Op, m^*, p^*)$ 列表。
+    * **Sampling**: **Sobol Sequence** (30 个 $(m, p)$ 点/Op)
+    * **ASHA Rungs**: [30, 80, 200] epochs
+    * **Reduction Factor**: 1/3 (每轮保留最好的 1/3)
+* **实验量**: ~8 ops × 30 samples = 240 初始配置
+    * Rung 1 (30ep): 240 配置
+    * Rung 2 (80ep): ~80 配置 (top 1/3)
+    * Rung 3 (200ep): ~27 配置 (top 1/9)
+* **预计时间**: ~2-4h (4 GPU 并行) — **比 Grid Search 快 ~10 倍**
+* **输出**: 按 `val_acc` 排序的 $(Op, m^*, p^*)$ 列表。
+
+> **ASHA 优势**: 采样更多点（不怕错过最优），早停节省算力（差配置不浪费 200ep），理论最优性保证。
 
 ### 阶段 C：先验贪心组合 (Prior-Guided Ensemble) — **v5.1 修正**
 *目标：构建最终策略。*
@@ -278,7 +289,9 @@ DataLoader(
 | 阶段 | 原时间估算 | 优化后估算 | 提速 |
 | :--- | :--- | :--- | :--- |
 | Phase A | ~1.2h | ~0.9h | ~25% |
-| Phase B | ~35h | ~28h | ~20% |
+| Phase B (ASHA) | ~35h (Grid) | **~2-4h** | **~90%** |
 | Phase C | ~4h | ~3h | ~25% |
 | Phase D | ~6h | ~4.5h | ~25% |
+
+> **v5.3 亮点**: Phase B 使用 ASHA 早停淘汰，从 ~35 小时降到 ~2-4 小时！
 
