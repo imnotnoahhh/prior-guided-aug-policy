@@ -11,7 +11,7 @@
 # 预计时间 (4 × A10 GPU):
 #   Baseline: ~15 min (单GPU)
 #   Phase A:  ~1-1.5 hours (4 GPU 并行)
-#   Phase B:  ~1.5-2 hours (4 GPU 并行)
+#   Phase B:  ~0.5-1 hour (ASHA, 4 GPU 并行)
 #   Phase C:  ~6 hours (单GPU, 贪心算法串行)
 #   Phase D:  ~1.5 hours (4 GPU 并行)
 #   总计:     ~10-11 hours
@@ -104,9 +104,9 @@ echo "多 GPU: ${MULTI_GPUS[*]} (用于 Phase A, B, D)"
 echo "日志目录: ${LOG_DIR}"
 echo "输出目录: ${OUTPUT_DIR}"
 echo ""
-echo "早停策略 (v5.1):"
+echo "早停策略 (v5.3):"
 echo "  Phase A: min_epochs=100, patience=30"
-echo "  Phase B: min_epochs=120, patience=40"
+echo "  Phase B: ASHA 多轮淘汰 (rungs=30,80,200, keep top 1/3)"
 echo "  Phase C: min_epochs=500, patience=99999 (禁用)"
 echo "  Phase D: min_epochs=500, patience=99999 (禁用)"
 
@@ -195,17 +195,16 @@ merge_csv "${OUTPUT_DIR}/phase_a_results.csv" "phase_a" \
 check_success "${OUTPUT_DIR}/phase_a_results.csv" "Phase A"
 
 # -----------------------------------------------------------------------------
-# Phase B (4 GPU 并行)
+# Phase B ASHA (4 GPU 并行)
 # -----------------------------------------------------------------------------
-print_header "[3/5] Phase B 微调 (4 GPU 并行)"
-echo "配置: Grid search, 每 GPU 处理 2 ops × 3 seeds × 200 epochs"
+print_header "[3/5] Phase B ASHA 微调 (4 GPU 并行)"
+echo "配置: ASHA 早停淘汰赛, rungs=[30,80,200], 每 GPU 处理 2 ops"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=0 nohup python -u main_phase_b.py \
-    --epochs 200 \
-    --seeds 42,123,456 \
-    --min_epochs 120 \
-    --early_stop_patience 40 \
+    --rungs 30,80,200 \
+    --n_samples 30 \
+    --reduction_factor 3 \
     --ops ${OPS_GPU0} \
     --phase_a_csv "${OUTPUT_DIR}/phase_a_results.csv" \
     --baseline_csv "${OUTPUT_DIR}/baseline_result.csv" \
@@ -214,10 +213,9 @@ CUDA_VISIBLE_DEVICES=0 nohup python -u main_phase_b.py \
     > "${LOG_DIR}/phase_b_gpu0_${TIMESTAMP}.log" 2>&1 &
 
 CUDA_VISIBLE_DEVICES=1 nohup python -u main_phase_b.py \
-    --epochs 200 \
-    --seeds 42,123,456 \
-    --min_epochs 120 \
-    --early_stop_patience 40 \
+    --rungs 30,80,200 \
+    --n_samples 30 \
+    --reduction_factor 3 \
     --ops ${OPS_GPU1} \
     --phase_a_csv "${OUTPUT_DIR}/phase_a_results.csv" \
     --baseline_csv "${OUTPUT_DIR}/baseline_result.csv" \
@@ -226,10 +224,9 @@ CUDA_VISIBLE_DEVICES=1 nohup python -u main_phase_b.py \
     > "${LOG_DIR}/phase_b_gpu1_${TIMESTAMP}.log" 2>&1 &
 
 CUDA_VISIBLE_DEVICES=2 nohup python -u main_phase_b.py \
-    --epochs 200 \
-    --seeds 42,123,456 \
-    --min_epochs 120 \
-    --early_stop_patience 40 \
+    --rungs 30,80,200 \
+    --n_samples 30 \
+    --reduction_factor 3 \
     --ops ${OPS_GPU2} \
     --phase_a_csv "${OUTPUT_DIR}/phase_a_results.csv" \
     --baseline_csv "${OUTPUT_DIR}/baseline_result.csv" \
@@ -238,10 +235,9 @@ CUDA_VISIBLE_DEVICES=2 nohup python -u main_phase_b.py \
     > "${LOG_DIR}/phase_b_gpu2_${TIMESTAMP}.log" 2>&1 &
 
 CUDA_VISIBLE_DEVICES=3 nohup python -u main_phase_b.py \
-    --epochs 200 \
-    --seeds 42,123,456 \
-    --min_epochs 120 \
-    --early_stop_patience 40 \
+    --rungs 30,80,200 \
+    --n_samples 30 \
+    --reduction_factor 3 \
     --ops ${OPS_GPU3} \
     --phase_a_csv "${OUTPUT_DIR}/phase_a_results.csv" \
     --baseline_csv "${OUTPUT_DIR}/baseline_result.csv" \

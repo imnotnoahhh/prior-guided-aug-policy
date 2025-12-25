@@ -13,7 +13,7 @@
 |:---|:---|:---|
 | **[NEW]** | 引入 probability 作为第二搜索维度 | `augmentations.py`: 添加概率包装器 |
 | **[CHANGED]** | Phase A: 1D Sobol → 2D Sobol (m, p) | `main_phase_a.py`: 2D 采样逻辑 |
-| **[CHANGED]** | Phase B: 1D Grid → 2D Grid (m, p) | `main_phase_b.py`: 2D 网格搜索 |
+| **[CHANGED]** | Phase B: Grid → ASHA 早停淘汰 (v5.3) | `main_phase_b.py`: ASHA + Sobol |
 | **[NEW]** | 每操作定制 (m, p) 范围 | `OP_SEARCH_SPACE` 配置 |
 | **[NEW]** | 消融实验: p=1.0 vs p=optimal | 使用 `archive_p100/` 数据对比 |
 
@@ -224,7 +224,7 @@ OP_SEARCH_SPACE = {
 | 阶段 | epochs | min_epochs | patience | min_delta | 说明 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Phase A** | 200 | 80 | 80 | 0.2 | 快速筛选，≥0.4×epochs |
-| **Phase B** | 200 | 100 | 100 | 0.2 | 精细调参，≥0.5×epochs |
+| **Phase B (ASHA)** | 30/80/200 | N/A | N/A | N/A | ASHA 多轮淘汰，每轮保留 top 1/3 |
 | **Phase C** | 800 | 500 | 99999 | 0.1 | 策略构建，禁用早停 |
 | **Phase D** | 800 | 500 | 99999 | 0.1 | 最终评估，禁用早停 |
 

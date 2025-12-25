@@ -162,9 +162,9 @@ python main_phase_a.py \
 
 ---
 
-## 4. Phase B 深度微调
+## 4. Phase B ASHA 深度微调 (v5.3)
 
-> **GPU 说明**: Phase B 默认使用 GPU 0 (v5: 2D Grid 搜索 m×p)。
+> **v5.3 更新**: Grid Search → ASHA 早停淘汰赛，速度提升 ~10 倍！
 
 ### 4.1 单 GPU 运行
 
@@ -172,30 +172,22 @@ python main_phase_a.py \
 # 冒烟测试
 bash scripts/smoke_test_phase_b.sh
 
-# 后台运行 (使用 GPU 0，默认开启 deterministic)
+# 完整 ASHA 运行 (~2-4 小时)
 CUDA_VISIBLE_DEVICES=0 nohup python main_phase_b.py > logs/phase_b.log 2>&1 &
 
 # 前台运行
 CUDA_VISIBLE_DEVICES=0 python main_phase_b.py | tee logs/phase_b.log
 
-# 关闭 deterministic 以提高速度 (可选)
-CUDA_VISIBLE_DEVICES=0 python main_phase_b.py --no_deterministic | tee logs/phase_b.log
+# 快速测试
+CUDA_VISIBLE_DEVICES=0 python main_phase_b.py --n_samples 5 --dry_run
 ```
 
 ### 4.2 4-GPU 并行运行 (推荐)
 
-如需加速 Phase B，可使用 4 个 GPU 并行：
-
-> **输出说明**：与 Phase A 相同，每个 GPU 的结果会保存到独立的子目录。
-> 这是**正常现象**，运行完成后需手动合并并重新生成 summary。
->
-> **Phase A/B 共用目录不会冲突**：文件名不同（`phase_a_results.csv` vs `phase_b_tuning_raw.csv`），可安全共存。
-
 ```bash
-# 创建输出目录 (如果 Phase A 已创建则可跳过)
 mkdir -p outputs/gpu{0,1,2,3} logs
 
-# 每个 GPU 分配 2 个 ops (根据 Phase A 晋级结果调整)
+# 每个 GPU 分配 2 个 ops
 CUDA_VISIBLE_DEVICES=0 nohup python -u main_phase_b.py --ops RandomResizedCrop,RandomRotation --output_dir outputs/gpu0 > logs/phase_b_gpu0.log 2>&1 &
 CUDA_VISIBLE_DEVICES=1 nohup python -u main_phase_b.py --ops RandomPerspective,ColorJitter --output_dir outputs/gpu1 > logs/phase_b_gpu1.log 2>&1 &
 CUDA_VISIBLE_DEVICES=2 nohup python -u main_phase_b.py --ops RandomGrayscale,GaussianBlur --output_dir outputs/gpu2 > logs/phase_b_gpu2.log 2>&1 &
@@ -208,18 +200,11 @@ echo "All Phase B GPUs finished!"
 **合并结果（必须执行）**：
 
 ```bash
-# 合并所有 GPU 的 raw CSV 结果
 head -1 outputs/gpu0/phase_b_tuning_raw.csv > outputs/phase_b_tuning_raw.csv
 tail -n +2 -q outputs/gpu*/phase_b_tuning_raw.csv >> outputs/phase_b_tuning_raw.csv
-
-# 验证合并结果
 echo "Total rows: $(wc -l < outputs/phase_b_tuning_raw.csv)"
-```
 
-**重新生成 summary（必须执行）**：
-
-```bash
-# 使用 Python 重新聚合生成 summary
+# 重新生成 summary
 python -c "
 import pandas as pd
 df = pd.read_csv('outputs/phase_b_tuning_raw.csv')
@@ -233,61 +218,44 @@ summary = df.groupby(['op_name', 'magnitude', 'probability']).agg(
 ).reset_index()
 summary = summary.fillna(0).round(4).sort_values('mean_val_acc', ascending=False)
 summary.to_csv('outputs/phase_b_tuning_summary.csv', index=False)
-print('=== Top 15 配置 ===')
 print(summary.head(15).to_string(index=False))
 "
 ```
 
-> **注意**：Phase B 的 `--ops` 参数应根据 Phase A 的晋级结果调整，不一定是全部 8 个 ops。
-
-### 可选参数
+### ASHA 参数说明
 
 ```bash
 python main_phase_b.py \
-    --epochs 200 \
-    --seeds 42,123,456 \
+    --rungs 30,80,200 \           # 检查点 epochs (每轮淘汰)
+    --n_samples 30 \              # 每个 op 的 Sobol 采样数
+    --reduction_factor 3 \        # 每轮保留 top 1/3
+    --seed 42 \                   # Sobol 采样种子
     --output_dir outputs \
     --phase_a_csv outputs/phase_a_results.csv \
     --baseline_csv outputs/baseline_result.csv \
-    --fold_idx 0 \
-    --num_workers 6 \
-    --min_epochs 120 \
-    --early_stop_patience 40 \
-    --top_k 4 \
-    --grid_step 0.1 \
-    --grid_n_steps 2 \
-    # --grid_points N  # 可选，默认无限制，限制每个 op 的网格点数
-    # --no_deterministic  # 可选，关闭确定性模式以提高速度
-
-> **v5.1 早停策略**: Phase B 使用 `min_epochs=120, patience=40, monitor=val_acc`。
+    --num_workers 8 \
+    --ops ColorJitter,GaussianBlur  # 可选，仅调优指定 ops
 ```
 
-### 调试参数
-
-```bash
-# 仅调优指定的 ops
-python main_phase_b.py --ops ColorJitter,GaussianBlur
-
-# 快速测试模式
-python main_phase_b.py --dry_run --epochs 2
-
-# 限制每个 op 的网格点数 (用于测试)
-python main_phase_b.py --grid_points 5
-```
+> **ASHA 工作原理**:
+> 1. Sobol 采样 30 个 (m, p) 点/op
+> 2. Rung 1: 全部训练到 30 epochs，保留 top 1/3
+> 3. Rung 2: 存活者续训到 80 epochs，再保留 top 1/3
+> 4. Rung 3: 最终存活者训到 200 epochs
 
 ### 输入文件
 
 | 文件 | 说明 |
 |------|------|
-| `outputs/phase_a_results.csv` | Phase A 筛选结果 (自动读取) |
-| `outputs/baseline_result.csv` | Baseline 结果 (用于晋级判定) |
+| `outputs/phase_a_results.csv` | Phase A 筛选结果 |
+| `outputs/baseline_result.csv` | Baseline 结果 |
 
 ### 输出文件
 
 | 文件 | 说明 |
 |------|------|
-| `outputs/phase_b_tuning_raw.csv` | 每个 (op, m, p, seed) 的原始结果 (v5: 2D Grid) |
-| `outputs/phase_b_tuning_summary.csv` | 聚合结果，按 mean_val_acc 降序排列 |
+| `outputs/phase_b_tuning_raw.csv` | ASHA 最终存活配置结果 |
+| `outputs/phase_b_tuning_summary.csv` | 按 mean_val_acc 降序排列 |
 | `logs/phase_b.log` | 运行日志 |
 
 ### 运行记录
@@ -556,7 +524,7 @@ bash scripts/train_multi_gpu.sh
 |------|--------|----------|------------------|-----------------|
 | Baseline | 1 × 200 ep | - | ~15 min | ~15 min |
 | Phase A | 8 ops × 32 点 × 200 ep | 允许早停 | ~4-5h | ~1-1.2h |
-| Phase B | ~8 ops × ~25 点 × 3 seeds × 200 ep | 允许早停 | ~5-6h | ~1.2-1.5h |
+| Phase B (ASHA) | ~8 ops × 30 samples, rungs=[30,80,200] | ASHA 淘汰 | ~2-4h | ~0.5-1h |
 | Phase C | ~8 ops × 3 seeds × 800 ep | **禁用** | ~6h | ~6h (单GPU) |
 | Phase D | 5 methods × 5 folds × 800 ep | **禁用** | ~6h | ~1.5h |
 
