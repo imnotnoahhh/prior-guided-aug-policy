@@ -545,7 +545,16 @@ def run_phase_d(
     policy = None
     if any(m in methods for m in ["Ours_p1", "Ours_optimal"]):
         if policy_json is None:
-            policy_json = output_dir / "phase_c_final_policy.json"
+            # Try main outputs directory first, then output_dir
+            main_policy_path = Path("outputs/phase_c_final_policy.json")
+            local_policy_path = output_dir / "phase_c_final_policy.json"
+            
+            if main_policy_path.exists():
+                policy_json = main_policy_path
+            elif local_policy_path.exists():
+                policy_json = local_policy_path
+            else:
+                policy_json = main_policy_path  # For error message
         
         if policy_json.exists():
             policy = load_policy(policy_json)
