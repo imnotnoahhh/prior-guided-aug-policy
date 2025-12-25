@@ -13,9 +13,9 @@
 #   Baseline: ~15 min
 #   Phase A:  ~4-5 hours (256 configs × 200 epochs, 允许早停)
 #   Phase B:  ~2-4 hours (ASHA 早停淘汰, rungs=[30,80,200])
-#   Phase C:  ~6 hours (Greedy × 3 seeds × 800 epochs, 禁用早停)
-#   Phase D:  ~6 hours (5 methods × 5 folds × 800 epochs, 禁用早停)
-#   总计:     ~22-24 hours
+#   Phase C:  ~1 hour (Greedy × 3 seeds × 200 epochs)
+#   Phase D:  ~1.5 hours (5 methods × 5 folds × 200 epochs)
+#   总计:     ~9-11 hours
 # =============================================================================
 
 set -euo pipefail
@@ -76,11 +76,11 @@ echo "GPU: ${GPU_ID}"
 echo "日志目录: ${LOG_DIR}"
 echo "输出目录: ${OUTPUT_DIR}"
 echo ""
-echo "早停策略 (v5.3):"
-echo "  Phase A: min_epochs=100, patience=30"
+echo "早停策略 (v5.4 - 统一 200ep):"
+echo "  Phase A: min_epochs=80, patience=80"
 echo "  Phase B: ASHA 多轮淘汰 (rungs=30,80,200, keep top 1/3)"
-echo "  Phase C: min_epochs=500, patience=99999 (禁用)"
-echo "  Phase D: min_epochs=500, patience=99999 (禁用)"
+echo "  Phase C: min_epochs=80, patience=80 (与 A/B 一致)"
+echo "  Phase D: min_epochs=80, patience=80 (与 A/B 一致)"
 
 # -----------------------------------------------------------------------------
 # Baseline
@@ -144,15 +144,14 @@ check_success "${OUTPUT_DIR}/phase_b_tuning_summary.csv" "Phase B"
 # Phase C
 # -----------------------------------------------------------------------------
 print_header "[4/5] Phase C 贪心组合"
-echo "配置: Greedy × 3 seeds × 800 epochs, patience=99999 (禁用早停)"
+echo "配置: Greedy × 3 seeds × 200 epochs (与 A/B 一致)"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${GPU_ID} python main_phase_c.py \
-    --epochs 800 \
+    --epochs 200 \
     --seeds 42,123,456 \
     --max_ops 3 \
-    --min_epochs 500 \
-    --early_stop_patience 99999 \
+    --improvement_threshold 0.3 \
     --phase_b_csv "${OUTPUT_DIR}/phase_b_tuning_summary.csv" \
     --output_dir "${OUTPUT_DIR}" \
     --num_workers 6 \
@@ -166,16 +165,14 @@ check_success "${OUTPUT_DIR}/phase_c_final_policy.json" "Phase C"
 # Phase D
 # -----------------------------------------------------------------------------
 print_header "[5/5] Phase D SOTA 对比"
-echo "配置: 5 methods × 5 folds × 800 epochs, patience=99999 (禁用早停)"
+echo "配置: 5 methods × 5 folds × 200 epochs (与 A/B 一致)"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${GPU_ID} python main_phase_d.py \
-    --epochs 800 \
+    --epochs 200 \
     --seed 42 \
     --methods Baseline,RandAugment,Cutout,Ours_p1,Ours_optimal \
     --folds 0,1,2,3,4 \
-    --min_epochs 500 \
-    --early_stop_patience 99999 \
     --policy_json "${OUTPUT_DIR}/phase_c_final_policy.json" \
     --output_dir "${OUTPUT_DIR}" \
     --num_workers 6 \

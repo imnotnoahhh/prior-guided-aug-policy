@@ -268,12 +268,12 @@ python main_phase_b.py \
 
 ## 5. Phase C 先验贪心组合
 
-> **GPU 说明**: Phase C 使用贪心算法逐步添加增强操作，每次候选需要训练 3 seeds × 800 epochs。
+> **GPU 说明**: Phase C 使用贪心算法逐步添加增强操作，每次候选需要训练 3 seeds × 200 epochs（与 A/B 一致）。
 
 ### 5.1 前置条件
 
 - Phase B 完成，`outputs/phase_b_tuning_summary.csv` 存在
-- 800 epochs 的 Baseline 结果（脚本会自动生成，或手动指定）
+- Baseline 结果存在（`outputs/baseline_result.csv`，与 Phase A/B 共用）
 
 ### 5.2 运行命令
 
@@ -281,10 +281,7 @@ python main_phase_b.py \
 # 冒烟测试
 bash scripts/smoke_test_phase_c.sh
 
-# 先运行 800-epoch Baseline（如果尚未运行）
-CUDA_VISIBLE_DEVICES=0 python main_phase_c.py --run_baseline_only | tee logs/phase_c_baseline.log
-
-# 运行完整 Phase C（800 epochs, 3 seeds）
+# 运行完整 Phase C（200 epochs, 3 seeds）
 CUDA_VISIBLE_DEVICES=0 nohup python main_phase_c.py > logs/phase_c.log 2>&1 &
 
 # 前台运行
@@ -298,26 +295,25 @@ CUDA_VISIBLE_DEVICES=0 python main_phase_c.py --epochs 2 --dry_run | tee logs/ph
 
 ```bash
 python main_phase_c.py \
-    --epochs 800 \
+    --epochs 200 \
     --seeds 42,123,456 \
     --fold_idx 0 \
     --output_dir outputs \
     --phase_b_csv outputs/phase_b_tuning_summary.csv \
-    --baseline_acc 35.5  # 可选，手动指定 800ep Baseline 准确率 \
+    --baseline_acc 37.0  # 可选，手动指定 Baseline 准确率 \
     --max_ops 3 \
-    --improvement_threshold 0.1 \
-    --num_workers 6 \
-    --early_stop_patience 99999  # 禁用早停
+    --improvement_threshold 0.3 \
+    --num_workers 6
 ```
 
-> **v5.1 早停策略**: Phase C 禁用早停 (`patience=99999`)，确保跑满 800 epochs。
+> **v5.4 变更**: Phase C 统一使用 200 epochs，与 Phase A/B 保持一致的训练预算，确保公平对比。
 
 ### 5.4 输入文件
 
 | 文件 | 说明 |
 |------|------|
 | `outputs/phase_b_tuning_summary.csv` | Phase B 最佳配置汇总 (自动读取) |
-| `outputs/baseline_800ep_result.csv` | 800-epoch Baseline 结果 (可选，不存在则自动生成) |
+| `outputs/baseline_result.csv` | Baseline 结果 (与 Phase A/B 共用) |
 
 ### 5.5 输出文件
 
@@ -325,20 +321,19 @@ python main_phase_c.py \
 |------|------|
 | `outputs/phase_c_history.csv` | 每次尝试添加操作的记录 |
 | `outputs/phase_c_final_policy.json` | 最终策略定义 (供 Phase D 使用) |
-| `outputs/baseline_800ep_result.csv` | 800-epoch Baseline 结果 |
-| `outputs/checkpoints/phase_c_*.pth` | **v5.1 新增**: 各策略的 best checkpoint |
+| `outputs/checkpoints/phase_c_*.pth` | 各策略的 best checkpoint |
 | `logs/phase_c.log` | 运行日志 |
 
 ### 5.6 算法说明
 
 Phase C 使用贪心算法构建最终策略：
 
-1. 初始化策略 P = S0，Acc(P) = Baseline_800ep_acc
+1. 初始化策略 P = S0，Acc(P) = Baseline_200ep_acc（与 A/B 一致）
 2. 按 Phase B 的 mean_val_acc 排名，逐个尝试添加 Op(m*, p*)
 3. 对每个候选 Op：
    - 检查互斥约束（如 RandomRotation 和 RandomPerspective 互斥）
-   - 训练 P + Op × 3 seeds × 800 epochs
-   - 如果 mean_acc > Acc(P) + 0.1%，则接受该 Op
+   - 训练 P + Op × 3 seeds × 200 epochs
+   - 如果 mean_acc > Acc(P) + 0.3%，则接受该 Op
 4. 最多添加 3 个额外操作
 5. 输出最终策略 P_final
 
@@ -352,7 +347,7 @@ Phase C 使用贪心算法构建最终策略：
 
 ## 6. Phase D SOTA 对比实验
 
-> **GPU 说明**: Phase D 在 5 个 Folds 上运行 5 种方法，共 25 次训练，每次 800 epochs。
+> **GPU 说明**: Phase D 在 5 个 Folds 上运行 5 种方法，共 25 次训练，每次 200 epochs（与 A/B/C 一致）。
 
 ### 6.1 前置条件
 
@@ -365,7 +360,7 @@ Phase C 使用贪心算法构建最终策略：
 # 冒烟测试
 bash scripts/smoke_test_phase_d.sh
 
-# 完整运行（5 方法 × 5 folds × 800 epochs）
+# 完整运行（5 方法 × 5 folds × 200 epochs）
 CUDA_VISIBLE_DEVICES=0 nohup python main_phase_d.py > logs/phase_d.log 2>&1 &
 
 # 前台运行
@@ -434,17 +429,16 @@ cp outputs/phase_d_gpu*/checkpoints/phase_d_fold*_best.pth outputs/checkpoints/ 
 
 ```bash
 python main_phase_d.py \
-    --epochs 800 \
+    --epochs 200 \
     --seed 42 \
     --output_dir outputs \
     --policy_json outputs/phase_c_final_policy.json \
     --methods Baseline,RandAugment,Cutout,Ours_p1,Ours_optimal \
     --folds 0,1,2,3,4 \
-    --num_workers 6 \
-    --early_stop_patience 99999  # 禁用早停
+    --num_workers 6
 ```
 
-> **v5.1 早停策略**: Phase D 禁用早停 (`patience=99999`)，确保所有方法公平对比（相同训练 epochs）。
+> **v5.4 变更**: Phase D 统一使用 200 epochs，与 Phase A/B/C 保持一致的训练预算，确保公平对比。
 
 ### 6.5 对比方法说明
 
@@ -518,19 +512,19 @@ bash scripts/train_multi_gpu.sh
 
 ---
 
-## 8. 计算量估计 (v5.1 更新)
+## 8. 计算量估计 (v5.4 更新 - 统一 200ep)
 
 | 阶段 | 配置数 | 早停策略 | 预计时间 (单 GPU) | 预计时间 (4 GPU) |
 |------|--------|----------|------------------|-----------------|
-| Baseline | 1 × 200 ep | - | ~15 min | ~15 min |
+| Baseline | 1 × 200 ep | 允许早停 | ~15 min | ~15 min |
 | Phase A | 8 ops × 32 点 × 200 ep | 允许早停 | ~4-5h | ~1-1.2h |
 | Phase B (ASHA) | ~8 ops × 30 samples, rungs=[30,80,200] | ASHA 淘汰 | ~2-4h | ~0.5-1h |
-| Phase C | ~8 ops × 3 seeds × 800 ep | **禁用** | ~6h | ~6h (单GPU) |
-| Phase D | 5 methods × 5 folds × 800 ep | **禁用** | ~6h | ~1.5h |
+| Phase C | ~8 ops × 3 seeds × 200 ep | 允许早停 | ~1h | ~1h (单GPU) |
+| Phase D | 5 methods × 5 folds × 200 ep | 允许早停 | ~1.5h | ~0.5h |
 
-> **v5.1 注意**: 
-> - Phase A/B: 使用 min_epochs + patience 早停，可能提前结束
-> - Phase C/D: **禁用早停**，确保跑满 800 epochs 以保证公平对比
+> **v5.4 变更**: 
+> - 所有阶段统一使用 200 epochs，与 Phase A/B 保持一致的训练预算
+> - 这确保了公平对比：相同 baseline 基准（~37%），验证"多 Op 组合 > 单 Op > 无增强"
 > - Phase C 因贪心算法串行执行，无法多 GPU 并行；Phase D 可按 fold 分配到 4 GPU
 
 ---
@@ -539,8 +533,7 @@ bash scripts/train_multi_gpu.sh
 
 ```
 outputs/
-├── baseline_result.csv           # Baseline 200ep 结果
-├── baseline_800ep_result.csv     # Baseline 800ep 结果 (Phase C 生成)
+├── baseline_result.csv           # Baseline 200ep 结果 (所有阶段共用)
 ├── phase_a_results.csv           # Phase A 筛选结果
 ├── phase_b_tuning_raw.csv        # Phase B 原始结果
 ├── phase_b_tuning_summary.csv    # Phase B 汇总结果

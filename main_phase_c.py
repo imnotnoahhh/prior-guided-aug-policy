@@ -274,13 +274,12 @@ def train_single_config(
             scaler = torch.amp.GradScaler()
         
         # Early stopping (v5.1: disabled for Phase C to ensure full training)
-        # Phase C is the policy construction stage - we need reliable results
-        # patience=99999 effectively disables early stopping
+        # Phase C uses same early stopping as Phase A/B for fair comparison
         early_stopper = EarlyStopping(
-            patience=early_stop_patience,  # Default 99999 for Phase C
+            patience=early_stop_patience,  # Default 80 for Phase C
             mode="max",  # Monitor val_acc (higher is better)
-            min_epochs=500,  # At least 500 epochs before considering stop
-            min_delta=0.1,
+            min_epochs=80,  # At least 80 epochs before considering stop
+            min_delta=0.2,
         )
         
         # Training loop
@@ -689,14 +688,14 @@ def run_phase_c(
 
 def run_800ep_baseline(
     output_dir: Path,
-    epochs: int = 800,
+    epochs: int = 200,
     seed: int = 42,
     fold_idx: int = 0,
     num_workers: int = 8,
-    early_stop_patience: int = 99999,
+    early_stop_patience: int = 80,
     deterministic: bool = True,
 ) -> float:
-    """Run 800-epoch baseline for Phase C/D comparison.
+    """Run baseline for Phase C comparison (now uses same epochs as A/B).
     
     Args:
         output_dir: Directory for output files.
@@ -733,7 +732,7 @@ def run_800ep_baseline(
     baseline_acc = result["val_acc"]
     
     # Save result
-    csv_path = output_dir / "baseline_800ep_result.csv"
+    csv_path = output_dir / "baseline_result.csv"
     write_csv_row(csv_path, result, write_header=True)
     
     print(f"\nBaseline {epochs}-epoch result: {baseline_acc:.2f}%")
@@ -755,8 +754,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--epochs",
         type=int,
-        default=800,
-        help="Number of training epochs per config (default: 800)"
+        default=200,
+        help="Number of training epochs per config (default: 200)"
     )
     
     parser.add_argument(
@@ -804,8 +803,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--improvement_threshold",
         type=float,
-        default=0.1,
-        help="Minimum improvement threshold in %% (default: 0.1)"
+        default=0.3,
+        help="Minimum improvement threshold in %% (default: 0.3)"
     )
     
     parser.add_argument(
@@ -818,8 +817,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--early_stop_patience",
         type=int,
-        default=99999,
-        help="Early stopping patience - set to 99999 to disable (default: 99999 for Phase C)"
+        default=80,
+        help="Early stopping patience (default: 80 for Phase C)"
     )
     
     parser.add_argument(
@@ -891,15 +890,15 @@ def main() -> int:
     # Get baseline accuracy
     baseline_acc = args.baseline_acc
     if baseline_acc is None:
-        # Try to load from 800ep baseline result
-        baseline_800ep_path = output_dir / "baseline_800ep_result.csv"
-        if baseline_800ep_path.exists():
-            df = pd.read_csv(baseline_800ep_path)
+        # Try to load from baseline result (200ep, same as Phase A/B)
+        baseline_path = output_dir / "baseline_result.csv"
+        if baseline_path.exists():
+            df = pd.read_csv(baseline_path)
             baseline_acc = df["val_acc"].iloc[0]
-            print(f"Loaded baseline accuracy from {baseline_800ep_path}: {baseline_acc:.2f}%")
+            print(f"Loaded baseline accuracy from {baseline_path}: {baseline_acc:.2f}%")
         else:
-            # Fallback: run 800ep baseline first
-            print("No 800-epoch baseline found. Running baseline first...")
+            # Fallback: run baseline first
+            print("No baseline found. Running baseline first...")
             baseline_acc = run_800ep_baseline(
                 output_dir=output_dir,
                 epochs=args.epochs if not args.dry_run else 2,

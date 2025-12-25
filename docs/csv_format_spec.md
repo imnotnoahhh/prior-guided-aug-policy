@@ -23,9 +23,9 @@ phase, op_name, magnitude, probability, seed, fold_idx, val_acc, val_loss, top5_
 | `top5_acc` | float | 验证集 Top-5 准确率 (%) | 72.8 |
 | `train_acc` | float | 训练集 Top-1 准确率 (%) | 52.1 |
 | `train_loss` | float | 训练集损失 | 1.8765 |
-| `epochs_run` | int | 实际运行的 epoch 数 | 200, 800 |
-| `best_epoch` | int | 达到最佳 val_acc 的 epoch | 185, 650 |
-| `early_stopped` | bool | 是否触发早停 (v5.1: C/D 阶段禁用) | True, False |
+| `epochs_run` | int | 实际运行的 epoch 数 | 200 |
+| `best_epoch` | int | 达到最佳 val_acc 的 epoch | 185 |
+| `early_stopped` | bool | 是否触发早停 | True, False |
 | `runtime_sec` | float | 运行时间（秒） | 3600.5 |
 | `timestamp` | str | ISO 8601 时间戳 | 2024-12-22T10:30:00 |
 | `error` | str | 错误信息（无错误为空） | OOM, ValueError |
@@ -55,14 +55,14 @@ phase, op_name, magnitude, probability, seed, fold_idx, val_acc, val_loss, top5_
 
 参见 `docs/csv_format_example.csv`
 
-## 早停策略 (v5.1)
+## 早停策略 (v5.4 - 统一 200ep)
 
 | 阶段 | epochs | 早停策略 | 预期 epochs_run | 预期 early_stopped |
 |------|--------|----------|-----------------|-------------------|
-| Phase A | 200 | min_epochs=100, patience=30 | 130-200 | True/False |
+| Phase A | 200 | min_epochs=80, patience=80 | 160-200 | True/False |
 | Phase B (v5.3) | 30/80/200 | ASHA 多轮淘汰 | 30/80/200 | **N/A** |
-| Phase C | 800 | **禁用** (patience=99999) | **800** | **False** |
-| Phase D | 800 | **禁用** (patience=99999) | **800** | **False** |
+| Phase C | 200 | min_epochs=80, patience=80 | 160-200 | True/False |
+| Phase D | 200 | min_epochs=80, patience=80 | 160-200 | True/False |
 
 ## 论文写作用途
 
