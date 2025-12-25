@@ -19,7 +19,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.dataset import CIFAR100Subsampled
-from src.augmentations import get_baseline_transform, get_val_transform, build_transform
+from src.augmentations import get_baseline_transform, get_val_transform, build_transform_with_op
 from src.models import create_model
 from src.utils import set_seed_deterministic, get_device
 
@@ -46,10 +46,11 @@ def run_profiler(
     print("=" * 70)
     
     # 使用一个典型的增强配置
-    train_transform = build_transform(
+    train_transform = build_transform_with_op(
         op_name="ColorJitter",
         magnitude=0.5,
         probability=0.5,
+        include_baseline=True,
         include_normalize=False,
     )
     val_transform = get_val_transform(include_normalize=False)
