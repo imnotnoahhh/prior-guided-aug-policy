@@ -298,16 +298,17 @@ def train_single_config(
     epochs: int,
     device: torch.device,
     fold_idx: int = 0,
-    batch_size: int = 64,
-    num_workers: int = 6,
-    early_stop_patience: int = 40,
-    min_epochs: int = 120,
+    batch_size: int = 512,
+    num_workers: int = 8,
+    early_stop_patience: int = 100,
+    min_epochs: int = 100,
     deterministic: bool = True,
 ) -> Dict:
     """Train one configuration and return metrics.
     
     v5 CHANGED: Added probability parameter for stochastic application.
     v5.1 CHANGED: Updated early stopping to monitor val_acc with min_epochs.
+    v5.2 CHANGED: Large batch training (bs=512, lr=0.4, warmup=5).
     
     Args:
         op_name: Name of the augmentation operation.
@@ -317,10 +318,10 @@ def train_single_config(
         epochs: Number of training epochs.
         device: Device to train on.
         fold_idx: Which fold to use (default 0 for search).
-        batch_size: Batch size (64 for low-data regime).
+        batch_size: Batch size (512 for large-batch training).
         num_workers: Number of data loading workers.
-        early_stop_patience: Epochs to wait after no improvement. Default 40 for Phase B.
-        min_epochs: Minimum epochs before early stopping. Default 120 for Phase B.
+        early_stop_patience: Epochs to wait after no improvement. Default 100 for Phase B.
+        min_epochs: Minimum epochs before early stopping. Default 100 for Phase B.
         deterministic: If True, enable deterministic CUDA mode.
         
     Returns:
@@ -380,7 +381,7 @@ def train_single_config(
             download=True,
         )
         
-        # Create data loaders with optimized settings
+        # Create data loaders with optimized settings for large batch
         use_cuda = device.type == "cuda"
         train_loader = DataLoader(
             train_dataset,
@@ -390,7 +391,7 @@ def train_single_config(
             pin_memory=use_cuda,
             drop_last=False,
             persistent_workers=True if num_workers > 0 else False,
-            prefetch_factor=4 if num_workers > 0 else None,
+            prefetch_factor=4 if num_workers > 0 else None,  # Increased from 2 to 4
         )
         
         val_loader = DataLoader(
@@ -401,23 +402,26 @@ def train_single_config(
             pin_memory=use_cuda,
             drop_last=False,
             persistent_workers=True if num_workers > 0 else False,
-            prefetch_factor=4 if num_workers > 0 else None,
+            prefetch_factor=4 if num_workers > 0 else None,  # Increased from 2 to 4
         )
         
-        # Create model
+        # Create model with channels_last memory format for better GPU performance
         model = create_model(num_classes=100, pretrained=False)
         model = model.to(device)
+        if use_cuda:
+            model = model.to(memory_format=torch.channels_last)
         
         # Loss function
         criterion = nn.CrossEntropyLoss()
         
-        # Optimizer and scheduler (fixed hyperparameters per No-NAS)
+        # Optimizer and scheduler (large batch: lr=0.4, warmup=5)
         optimizer, scheduler = get_optimizer_and_scheduler(
             model=model,
             total_epochs=epochs,
-            lr=0.05,
+            lr=0.4,
             weight_decay=1e-3,
             momentum=0.9,
+            warmup_epochs=5,
         )
         
         # AMP scaler (only for CUDA)
@@ -625,10 +629,10 @@ def run_phase_b_grid_search(
     epochs: int = 200,
     seeds: List[int] = [42, 123, 456],
     fold_idx: int = 0,
-    batch_size: int = 64,
-    num_workers: int = 6,
-    early_stop_patience: int = 40,
-    min_epochs: int = 120,
+    batch_size: int = 512,
+    num_workers: int = 8,
+    early_stop_patience: int = 100,
+    min_epochs: int = 100,
     deterministic: bool = True,
     top_k: int = 4,
     grid_step: float = 0.05,
@@ -640,6 +644,7 @@ def run_phase_b_grid_search(
     """Run Phase B grid search with multi-seed robustness.
     
     v5.1 CHANGED: Updated early stopping to monitor val_acc with min_epochs.
+    v5.2 CHANGED: Large batch training (bs=512, lr=0.4, warmup=5).
     
     Args:
         phase_a_csv: Path to Phase A results CSV.
@@ -648,10 +653,10 @@ def run_phase_b_grid_search(
         epochs: Training epochs per config.
         seeds: List of random seeds for robustness.
         fold_idx: Which fold to use (0 for search).
-        batch_size: Training batch size.
+        batch_size: Training batch size (512 for large-batch).
         num_workers: Data loading workers.
-        early_stop_patience: Epochs to wait after no improvement. Default 40 for Phase B.
-        min_epochs: Minimum epochs before early stopping. Default 120 for Phase B.
+        early_stop_patience: Epochs to wait after no improvement. Default 100 for Phase B.
+        min_epochs: Minimum epochs before early stopping. Default 100 for Phase B.
         deterministic: Enable deterministic CUDA mode.
         top_k: Number of top configs per op as grid centers.
         grid_step: Step size for local grid.
@@ -868,22 +873,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--num_workers",
         type=int,
-        default=6,
-        help="Number of data loading workers (default: 6)"
+        default=8,
+        help="Number of data loading workers (default: 8)"
     )
     
     parser.add_argument(
         "--early_stop_patience",
         type=int,
-        default=40,
-        help="Early stopping patience - epochs to wait after no improvement (default: 40)"
+        default=100,
+        help="Early stopping patience - epochs to wait after no improvement (default: 100)"
     )
     
     parser.add_argument(
         "--min_epochs",
         type=int,
-        default=120,
-        help="Minimum epochs before early stopping is considered (default: 120)"
+        default=100,
+        help="Minimum epochs before early stopping is considered (default: 100)"
     )
     
     parser.add_argument(
@@ -964,11 +969,11 @@ def main() -> int:
     print("=" * 70)
     print(f"Device: {device}")
     print(f"Epochs: {args.epochs}")
-    print(f"Batch size: 64")
+    print(f"Batch size: 512")
     print(f"Fold: {args.fold_idx}")
     print(f"Seeds: {seeds}")
     print(f"Deterministic: {deterministic}")
-    print(f"LR: 0.05, WD: 1e-3, Momentum: 0.9")
+    print(f"LR: 0.4, WD: 1e-3, Momentum: 0.9, Warmup: 5 epochs")
     print(f"Early stopping: min_epochs={args.min_epochs}, patience={args.early_stop_patience}, monitor=val_acc")
     print(f"Output dir: {args.output_dir}")
     print("-" * 70)

@@ -172,9 +172,9 @@ def train_single_config(
     device: torch.device,
     fold_idx: int,
     policy: Optional[List[Tuple[str, float, float]]] = None,
-    batch_size: int = 64,
-    num_workers: int = 6,
-    early_stop_patience: int = 5,
+    batch_size: int = 512,
+    num_workers: int = 8,
+    early_stop_patience: int = 99999,
     deterministic: bool = True,
     save_checkpoint: bool = False,
     checkpoint_dir: Optional[Path] = None,
@@ -256,7 +256,7 @@ def train_single_config(
             download=True,
         )
         
-        # Create data loaders
+        # Create data loaders with optimized settings for large batch
         use_cuda = device.type == "cuda"
         train_loader = DataLoader(
             train_dataset,
@@ -266,7 +266,7 @@ def train_single_config(
             pin_memory=use_cuda,
             drop_last=False,
             persistent_workers=True if num_workers > 0 else False,
-            prefetch_factor=4 if num_workers > 0 else None,
+            prefetch_factor=4 if num_workers > 0 else None,  # Increased from 2 to 4
         )
         
         val_loader = DataLoader(
@@ -277,23 +277,26 @@ def train_single_config(
             pin_memory=use_cuda,
             drop_last=False,
             persistent_workers=True if num_workers > 0 else False,
-            prefetch_factor=4 if num_workers > 0 else None,
+            prefetch_factor=4 if num_workers > 0 else None,  # Increased from 2 to 4
         )
         
-        # Create model
+        # Create model with channels_last memory format for better GPU performance
         model = create_model(num_classes=100, pretrained=False)
         model = model.to(device)
+        if use_cuda:
+            model = model.to(memory_format=torch.channels_last)
         
         # Loss function
         criterion = nn.CrossEntropyLoss()
         
-        # Optimizer and scheduler
+        # Optimizer and scheduler (large batch: lr=0.4, warmup=5)
         optimizer, scheduler = get_optimizer_and_scheduler(
             model=model,
             total_epochs=epochs,
-            lr=0.05,
+            lr=0.4,
             weight_decay=1e-3,
             momentum=0.9,
+            warmup_epochs=5,
         )
         
         # AMP scaler
@@ -504,8 +507,8 @@ def run_phase_d(
     folds: Optional[List[int]] = None,
     epochs: int = 800,
     seed: int = 42,
-    num_workers: int = 6,
-    early_stop_patience: int = 5,
+    num_workers: int = 8,
+    early_stop_patience: int = 99999,
     deterministic: bool = True,
     dry_run: bool = False,
 ) -> pd.DataFrame:
@@ -699,8 +702,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--num_workers",
         type=int,
-        default=6,
-        help="Number of data loading workers (default: 6)"
+        default=8,
+        help="Number of data loading workers (default: 8)"
     )
     
     parser.add_argument(

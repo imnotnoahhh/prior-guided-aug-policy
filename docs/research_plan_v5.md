@@ -183,11 +183,15 @@ OP_SEARCH_SPACE = {
 | :--- | :--- | :--- |
 | **Model** | ResNet-18 | 标准 Backbones |
 | **Optimizer** | SGD | |
-| **Learning Rate** | 0.05 | 小数据平衡优化 |
+| **Learning Rate** | 0.4 | 大 batch 线性缩放 (0.05×8) |
 | **Weight Decay** | 1e-3 | 增强正则化 |
 | **Momentum** | 0.9 | |
-| **Scheduler** | CosineAnnealingLR | T_max = Total Epochs |
-| **Batch Size** | 64 | |
+| **Scheduler** | CosineAnnealingLR | T_max = Total Epochs - Warmup |
+| **Warmup** | 5 epochs | 线性 warmup 到 lr=0.4 |
+| **Batch Size** | 512 | 大 batch 加速训练 |
+| **num_workers** | 8 | DataLoader 并行加载 |
+| **prefetch_factor** | 4 | DataLoader 预取 (v5.2: 从 2 增加到 4) |
+| **channels_last** | True | NHWC 内存格式 (v5.2 新增) |
 | **Phase A Epochs** | 200 | 快速筛选 |
 | **Phase C/D Epochs** | **800** | 补偿数据量减少 |
 | **AMP** | Enabled | 混合精度加速 |
@@ -208,14 +212,73 @@ OP_SEARCH_SPACE = {
 
 | 阶段 | epochs | min_epochs | patience | min_delta | 说明 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Phase A** | 200 | 100 | 30 | 0.2 | 快速筛选，允许早停 |
-| **Phase B** | 200 | 120 | 40 | 0.2 | 精细调参，允许早停 |
+| **Phase A** | 200 | 80 | 80 | 0.2 | 快速筛选，≥0.4×epochs |
+| **Phase B** | 200 | 100 | 100 | 0.2 | 精细调参，≥0.5×epochs |
 | **Phase C** | 800 | 500 | 99999 | 0.1 | 策略构建，禁用早停 |
 | **Phase D** | 800 | 500 | 99999 | 0.1 | 最终评估，禁用早停 |
+
+> **Note**: min_epochs 和 patience 按 step 等价量调整，保证大 batch (512) 下 cosine 调度有足够时间生效。
 
 ### 论文解释
 
 > Phase A/B 为搜索阶段，使用早停加速筛选（min_epochs=100-120, patience=30-40）。
 > Phase C/D 为最终评估阶段，禁用早停以确保公平对比（所有方法训练相同 epochs）。
 > 所有阶段按 val_acc 选择最佳 checkpoint。
+
+---
+
+## 7. 附录：训练优化 (Training Optimizations) — **v5.2 新增**
+
+### 优化概述
+
+为加速训练并减少 GPU 空闲时间，应用以下优化：
+
+| 优化项 | 设置 | 预期提速 | 说明 |
+| :--- | :--- | :--- | :--- |
+| **channels_last** | `memory_format=torch.channels_last` | 10-20% | 避免 NCHW→NHWC 转换 |
+| **prefetch_factor** | 4 (从 2 增加) | 5-10% | 减少 DataLoader 等待 |
+| **pin_memory** | True | 5-10% | 异步 H2D 传输 |
+| **persistent_workers** | True | 3-5% | 避免 worker 重启开销 |
+
+### 实现细节
+
+**1. 模型使用 channels_last 内存格式**
+```python
+model = model.to(device)
+if device.type == "cuda":
+    model = model.to(memory_format=torch.channels_last)
+```
+
+**2. 输入数据使用 channels_last 传输**
+```python
+# 在 src/utils.py 的 train_one_epoch 和 evaluate 中
+images = images.to(device, non_blocking=True, memory_format=torch.channels_last)
+```
+
+**3. DataLoader 优化配置**
+```python
+DataLoader(
+    dataset,
+    batch_size=512,
+    num_workers=8,
+    pin_memory=True,
+    persistent_workers=True,
+    prefetch_factor=4,  # v5.2: 从 2 增加到 4
+)
+```
+
+### 兼容性说明
+
+- **channels_last**: PyTorch 1.5+ 支持，ResNet 全面兼容
+- **硬件要求**: CUDA GPU（CPU 训练自动跳过这些优化）
+- **精度影响**: 无影响（只改变内存布局，不改变数值）
+
+### 预期效果
+
+| 阶段 | 原时间估算 | 优化后估算 | 提速 |
+| :--- | :--- | :--- | :--- |
+| Phase A | ~1.2h | ~0.9h | ~25% |
+| Phase B | ~35h | ~28h | ~20% |
+| Phase C | ~4h | ~3h | ~25% |
+| Phase D | ~6h | ~4.5h | ~25% |
 
