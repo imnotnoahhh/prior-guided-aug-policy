@@ -136,7 +136,7 @@ def train_single_config(
     epochs: int,
     device: torch.device,
     fold_idx: int = 0,
-    batch_size: int = 512,
+    batch_size: int = 128,
     num_workers: int = 8,
     early_stop_patience: int = 99999,
     deterministic: bool = True,
@@ -255,15 +255,15 @@ def train_single_config(
         if use_cuda:
             model = model.to(memory_format=torch.channels_last)
         
-        # Loss function
-        criterion = nn.CrossEntropyLoss()
+        # Loss function (with label smoothing for regularization)
+        criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
         
-        # Optimizer and scheduler (large batch: lr=0.4, warmup=5)
+        # Optimizer and scheduler
         optimizer, scheduler = get_optimizer_and_scheduler(
             model=model,
             total_epochs=epochs,
-            lr=0.4,
-            weight_decay=1e-3,
+            lr=0.1,
+            weight_decay=5e-3,
             momentum=0.9,
             warmup_epochs=5,
         )
@@ -349,8 +349,8 @@ def train_single_config(
                     "fold_idx": fold_idx,
                     "epochs": epochs,
                     "batch_size": batch_size,
-                    "lr": 0.05,
-                    "weight_decay": 1e-3,
+                    "lr": 0.1,
+                    "weight_decay": 5e-3,
                     "momentum": 0.9,
                 }
             }

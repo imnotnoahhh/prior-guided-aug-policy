@@ -41,7 +41,7 @@ from src.utils import (
 def run_baseline(
     epochs: int = 200,
     fold_idx: int = 0,
-    batch_size: int = 512,
+    batch_size: int = 128,
     num_workers: int = 8,
     early_stop_patience: int = 80,
     min_epochs: int = 80,
@@ -63,7 +63,7 @@ def run_baseline(
     print(f"Fold: {fold_idx}")
     print(f"Seed: {seed}")
     print(f"Deterministic: {deterministic}")
-    print(f"LR: 0.4, WD: 1e-3, Momentum: 0.9, Warmup: 5 epochs")
+    print(f"LR: 0.1, WD: 5e-3, Momentum: 0.9, Warmup: 5 epochs, Label Smoothing: 0.1")
     print(f"Min epochs: {min_epochs}")
     print(f"Early stop patience: {early_stop_patience}")
     print(f"Output dir: outputs")
@@ -120,15 +120,15 @@ def run_baseline(
     if use_cuda:
         model = model.to(memory_format=torch.channels_last)
     
-    # Loss function
-    criterion = nn.CrossEntropyLoss()
+    # Loss function (with label smoothing for regularization)
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
     
-    # Optimizer and scheduler (large batch: lr=0.4, warmup=5)
+    # Optimizer and scheduler
     optimizer, scheduler = get_optimizer_and_scheduler(
         model=model,
         total_epochs=epochs,
-        lr=0.4,
-        weight_decay=1e-3,
+        lr=0.1,
+        weight_decay=5e-3,
         momentum=0.9,
         warmup_epochs=5,
     )
@@ -288,8 +288,8 @@ def run_baseline(
                 "fold_idx": fold_idx,
                 "epochs": epochs,
                 "batch_size": batch_size,
-                "lr": 0.05,
-                "weight_decay": 1e-3,
+                "lr": 0.1,
+                "weight_decay": 5e-3,
                 "momentum": 0.9,
             }
         }
@@ -314,7 +314,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Run S0 Baseline training")
     parser.add_argument("--epochs", type=int, default=200, help="Number of epochs")
     parser.add_argument("--fold_idx", type=int, default=0, help="Fold index")
-    parser.add_argument("--batch_size", type=int, default=512, help="Batch size")
+    parser.add_argument("--batch_size", type=int, default=128, help="Batch size")
     parser.add_argument("--num_workers", type=int, default=8, help="Data loader workers")
     parser.add_argument("--early_stop_patience", type=int, default=80, help="Early stopping patience")
     parser.add_argument("--min_epochs", type=int, default=80, help="Minimum epochs before early stopping")

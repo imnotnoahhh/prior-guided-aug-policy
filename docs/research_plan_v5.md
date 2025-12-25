@@ -200,12 +200,13 @@ OP_SEARCH_SPACE = {
 | :--- | :--- | :--- |
 | **Model** | ResNet-18 | 标准 Backbones |
 | **Optimizer** | SGD | |
-| **Learning Rate** | 0.4 | 大 batch 线性缩放 (0.05×8) |
-| **Weight Decay** | 1e-3 | 增强正则化 |
+| **Learning Rate** | 0.1 | 标准学习率 |
+| **Weight Decay** | 5e-3 | 增强正则化 |
+| **Label Smoothing** | 0.1 | 标签平滑正则化 |
 | **Momentum** | 0.9 | |
 | **Scheduler** | CosineAnnealingLR | T_max = Total Epochs - Warmup |
-| **Warmup** | 5 epochs | 线性 warmup 到 lr=0.4 |
-| **Batch Size** | 512 | 大 batch 加速训练 |
+| **Warmup** | 5 epochs | 线性 warmup 到 lr=0.1 |
+| **Batch Size** | 128 | 标准 batch size |
 | **num_workers** | 8 | DataLoader 并行加载 |
 | **prefetch_factor** | 4 | DataLoader 预取 (v5.2: 从 2 增加到 4) |
 | **channels_last** | True | NHWC 内存格式 (v5.2 新增) |
@@ -233,7 +234,7 @@ OP_SEARCH_SPACE = {
 | **Phase C** | 200 | 80 | 80 | 0.2 | 策略构建，与 A/B 一致 |
 | **Phase D** | 200 | 80 | 80 | 0.2 | 最终评估，与 A/B 一致 |
 
-> **Note**: min_epochs 和 patience 按 step 等价量调整，保证大 batch (512) 下 cosine 调度有足够时间生效。
+> **Note**: min_epochs 和 patience 按 step 等价量调整，保证 batch size (128) 下 cosine 调度有足够时间生效。
 
 ### 论文解释
 
@@ -275,7 +276,7 @@ images = images.to(device, non_blocking=True, memory_format=torch.channels_last)
 ```python
 DataLoader(
     dataset,
-    batch_size=512,
+    batch_size=128,
     num_workers=8,
     pin_memory=True,
     persistent_workers=True,

@@ -126,7 +126,7 @@ def train_single_config(
     epochs: int,
     device: torch.device,
     fold_idx: int = 0,
-    batch_size: int = 512,
+    batch_size: int = 128,
     num_workers: int = 8,
     early_stop_patience: int = 80,
     min_epochs: int = 80,
@@ -237,15 +237,15 @@ def train_single_config(
     if use_cuda:
         model = model.to(memory_format=torch.channels_last)
     
-    # Loss function
-    criterion = nn.CrossEntropyLoss()
+    # Loss function (with label smoothing for regularization)
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
     
-    # Optimizer and scheduler (large batch: lr=0.4, warmup=5)
+    # Optimizer and scheduler
     optimizer, scheduler = get_optimizer_and_scheduler(
         model=model,
         total_epochs=epochs,
-        lr=0.4,
-        weight_decay=1e-3,
+        lr=0.1,
+        weight_decay=5e-3,
         momentum=0.9,
         warmup_epochs=5,
     )
@@ -481,11 +481,11 @@ def main() -> int:
     print("=" * 70)
     print(f"Device: {device}")
     print(f"Epochs: {args.epochs}")
-    print(f"Batch size: 512")
+    print(f"Batch size: 128")
     print(f"Fold: {args.fold_idx}")
     print(f"Seed: {args.seed}")
     print(f"Deterministic: True")
-    print(f"LR: 0.4, WD: 1e-3, Momentum: 0.9, Warmup: 5 epochs")
+    print(f"LR: 0.1, WD: 5e-3, Momentum: 0.9, Warmup: 5 epochs, Label Smoothing: 0.1")
     print(f"Early stopping: min_epochs={args.min_epochs}, patience={args.early_stop_patience}, monitor=val_acc")
     print(f"Output dir: {args.output_dir}")
     print("-" * 70)

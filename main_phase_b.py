@@ -187,7 +187,7 @@ def train_to_epoch(
     device: torch.device,
     checkpoint: Optional[Dict] = None,
     fold_idx: int = 0,
-    batch_size: int = 512,
+    batch_size: int = 128,
     num_workers: int = 8,
     seed: int = 42,
     deterministic: bool = True,
@@ -275,15 +275,15 @@ def train_to_epoch(
     if use_cuda:
         model = model.to(memory_format=torch.channels_last)
     
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
     
     # Create optimizer and scheduler for FULL training duration
     # (scheduler needs to know total epochs for proper cosine annealing)
     optimizer, scheduler = get_optimizer_and_scheduler(
         model=model,
         total_epochs=200,  # Fixed max epochs for consistent LR schedule
-        lr=0.4,
-        weight_decay=1e-3,
+        lr=0.1,
+        weight_decay=5e-3,
         momentum=0.9,
         warmup_epochs=5,
     )
@@ -470,7 +470,7 @@ def run_phase_b_asha(
     n_samples: int = 30,
     seed: int = 42,
     fold_idx: int = 0,
-    batch_size: int = 512,
+    batch_size: int = 128,
     num_workers: int = 8,
     deterministic: bool = True,
     ops_filter: Optional[List[str]] = None,
@@ -761,7 +761,7 @@ def main() -> int:
     print(f"Reduction factor: 1/{args.reduction_factor}")
     print(f"Sobol samples per op: {args.n_samples}")
     print(f"Seed: {args.seed}")
-    print(f"Batch size: 512")
+    print(f"Batch size: 128")
     print(f"Fold: {args.fold_idx}")
     print(f"Deterministic: {deterministic}")
     print("-" * 70)
