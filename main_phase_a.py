@@ -126,10 +126,10 @@ def train_single_config(
     epochs: int,
     device: torch.device,
     fold_idx: int = 0,
-    batch_size: int = 64,
-    num_workers: int = 6,
-    early_stop_patience: int = 30,
-    min_epochs: int = 100,
+    batch_size: int = 512,
+    num_workers: int = 8,
+    early_stop_patience: int = 80,
+    min_epochs: int = 80,
     seed: int = 42,
     deterministic: bool = True,
 ) -> Dict:
@@ -137,6 +137,7 @@ def train_single_config(
     
     v5 CHANGED: Added probability parameter for stochastic application.
     v5.1 CHANGED: Updated early stopping to monitor val_acc with min_epochs.
+    v5.2 CHANGED: Large batch training (bs=512, lr=0.4, warmup=5).
     
     Args:
         op_name: Name of the augmentation operation.
@@ -145,10 +146,10 @@ def train_single_config(
         epochs: Number of training epochs.
         device: Device to train on.
         fold_idx: Which fold to use (default 0 for search).
-        batch_size: Batch size (64 for low-data regime).
+        batch_size: Batch size (512 for large-batch training).
         num_workers: Number of data loading workers.
-        early_stop_patience: Epochs to wait after no improvement. Default 30 for Phase A.
-        min_epochs: Minimum epochs before early stopping. Default 100 for Phase A.
+        early_stop_patience: Epochs to wait after no improvement. Default 80 for Phase A.
+        min_epochs: Minimum epochs before early stopping. Default 80 for Phase A.
         seed: Random seed for reproducibility.
         deterministic: If True, enable deterministic CUDA mode.
         
@@ -206,7 +207,7 @@ def train_single_config(
         download=True,
     )
     
-    # Create data loaders with optimized settings
+    # Create data loaders with optimized settings for large batch
     use_cuda = device.type == "cuda"
     train_loader = DataLoader(
         train_dataset,
@@ -216,7 +217,7 @@ def train_single_config(
         pin_memory=use_cuda,
         drop_last=False,
         persistent_workers=True if num_workers > 0 else False,
-        prefetch_factor=4 if num_workers > 0 else None,
+        prefetch_factor=4 if num_workers > 0 else None,  # Increased from 2 to 4
     )
     
     val_loader = DataLoader(
@@ -227,23 +228,26 @@ def train_single_config(
         pin_memory=use_cuda,
         drop_last=False,
         persistent_workers=True if num_workers > 0 else False,
-        prefetch_factor=4 if num_workers > 0 else None,
+        prefetch_factor=4 if num_workers > 0 else None,  # Increased from 2 to 4
     )
     
-    # Create model
+    # Create model with channels_last memory format for better GPU performance
     model = create_model(num_classes=100, pretrained=False)
     model = model.to(device)
+    if use_cuda:
+        model = model.to(memory_format=torch.channels_last)
     
     # Loss function
     criterion = nn.CrossEntropyLoss()
     
-    # Optimizer and scheduler (optimized for low-data regime)
+    # Optimizer and scheduler (large batch: lr=0.4, warmup=5)
     optimizer, scheduler = get_optimizer_and_scheduler(
         model=model,
         total_epochs=epochs,
-        lr=0.05,
+        lr=0.4,
         weight_decay=1e-3,
         momentum=0.9,
+        warmup_epochs=5,
     )
     
     # AMP scaler (only for CUDA)
@@ -431,22 +435,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--num_workers",
         type=int,
-        default=6,
-        help="Number of data loading workers (default: 6)"
+        default=8,
+        help="Number of data loading workers (default: 8)"
     )
     
     parser.add_argument(
         "--early_stop_patience",
         type=int,
-        default=30,
-        help="Early stopping patience - epochs to wait after no improvement (default: 30)"
+        default=80,
+        help="Early stopping patience - epochs to wait after no improvement (default: 80)"
     )
     
     parser.add_argument(
         "--min_epochs",
         type=int,
-        default=100,
-        help="Minimum epochs before early stopping is considered (default: 100)"
+        default=80,
+        help="Minimum epochs before early stopping is considered (default: 80)"
     )
     
     parser.add_argument(
@@ -477,11 +481,11 @@ def main() -> int:
     print("=" * 70)
     print(f"Device: {device}")
     print(f"Epochs: {args.epochs}")
-    print(f"Batch size: 64")
+    print(f"Batch size: 512")
     print(f"Fold: {args.fold_idx}")
     print(f"Seed: {args.seed}")
     print(f"Deterministic: True")
-    print(f"LR: 0.05, WD: 1e-3, Momentum: 0.9")
+    print(f"LR: 0.4, WD: 1e-3, Momentum: 0.9, Warmup: 5 epochs")
     print(f"Early stopping: min_epochs={args.min_epochs}, patience={args.early_stop_patience}, monitor=val_acc")
     print(f"Output dir: {args.output_dir}")
     print("-" * 70)

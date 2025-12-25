@@ -119,11 +119,13 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
     scaler: Optional[torch.amp.GradScaler] = None,
+    channels_last: bool = True,
 ) -> Tuple[float, float]:
-    """Train for one epoch with AMP support.
+    """Train for one epoch with AMP support and channels_last optimization.
     
     Features:
     - AMP: torch.autocast + GradScaler when CUDA available and scaler provided
+    - channels_last: NHWC memory format for better GPU performance (default: True)
     - NaN guard: raises ValueError if loss becomes NaN
     - OOM handling: catches CUDA OOM, clears cache, skips batch
     
@@ -134,6 +136,7 @@ def train_one_epoch(
         optimizer: Optimizer instance.
         device: Device to train on.
         scaler: GradScaler for AMP. If None, uses FP32 training.
+        channels_last: Use NHWC memory format for images. Default True.
         
     Returns:
         Tuple of (average_loss, accuracy_percent).
@@ -152,10 +155,15 @@ def train_one_epoch(
     
     # Determine if we should use AMP
     use_amp = scaler is not None and device.type == "cuda"
+    use_channels_last = channels_last and device.type == "cuda"
     
     for images, labels in train_loader:
         try:
-            images = images.to(device, non_blocking=True)
+            # H2D transfer with channels_last format to avoid nchwToNhwcKernel conversion
+            if use_channels_last:
+                images = images.to(device, non_blocking=True, memory_format=torch.channels_last)
+            else:
+                images = images.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
             
             # Forward pass with optional autocast
@@ -222,6 +230,7 @@ def evaluate(
     val_loader: DataLoader,
     criterion: nn.Module,
     device: torch.device,
+    channels_last: bool = True,
 ) -> Tuple[float, float, float]:
     """Evaluate model on validation set.
     
@@ -232,6 +241,7 @@ def evaluate(
         val_loader: Validation data loader.
         criterion: Loss function.
         device: Device to evaluate on.
+        channels_last: Use NHWC memory format for images. Default True.
         
     Returns:
         Tuple of (average_loss, top1_accuracy_percent, top5_accuracy_percent).
@@ -244,10 +254,15 @@ def evaluate(
     correct_top5 = torch.tensor(0, device=device)
     total = 0
     num_batches = 0
+    use_channels_last = channels_last and device.type == "cuda"
     
     with torch.no_grad():
         for images, labels in val_loader:
-            images = images.to(device, non_blocking=True)
+            # H2D transfer with channels_last format
+            if use_channels_last:
+                images = images.to(device, non_blocking=True, memory_format=torch.channels_last)
+            else:
+                images = images.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
             
             outputs = model(images)
@@ -384,24 +399,34 @@ class EarlyStopping:
 def get_optimizer_and_scheduler(
     model: nn.Module,
     total_epochs: int,
-    lr: float = 0.05,
+    lr: float = 0.4,
     weight_decay: float = 1e-3,
     momentum: float = 0.9,
+    warmup_epochs: int = 5,
 ) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler]:
-    """Create SGD optimizer and CosineAnnealingLR scheduler.
+    """Create SGD optimizer with warmup + CosineAnnealingLR scheduler.
     
-    Hyperparameters optimized for low-data regime (9k samples, 100 classes).
+    Hyperparameters optimized for large-batch training (bs=512).
+    Uses linear scaling rule: batch×8 → lr×8 (0.05→0.4).
     
     Args:
         model: The model to optimize.
-        total_epochs: Total number of training epochs (for scheduler T_max).
-        lr: Learning rate. Default 0.05 (balanced for low-data regime).
+        total_epochs: Total number of training epochs.
+        lr: Learning rate. Default 0.4 (scaled for bs=512).
         weight_decay: Weight decay. Default 1e-3 (increased for regularization).
         momentum: SGD momentum. Default 0.9.
+        warmup_epochs: Number of warmup epochs. Default 5.
+            Linear warmup from lr/warmup_epochs to lr.
         
     Returns:
         Tuple of (optimizer, scheduler).
+        
+    Note:
+        Scheduler structure: LinearLR (warmup) → CosineAnnealingLR
+        Combined using SequentialLR with milestone at warmup_epochs.
     """
+    from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
+    
     optimizer = torch.optim.SGD(
         model.parameters(),
         lr=lr,
@@ -409,10 +434,33 @@ def get_optimizer_and_scheduler(
         weight_decay=weight_decay,
     )
     
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=total_epochs,
-    )
+    if warmup_epochs > 0 and total_epochs > warmup_epochs:
+        # Warmup: linear from lr/warmup_epochs to lr
+        warmup_scheduler = LinearLR(
+            optimizer,
+            start_factor=1.0 / warmup_epochs,  # Start at lr/warmup_epochs
+            end_factor=1.0,                     # End at lr
+            total_iters=warmup_epochs,
+        )
+        
+        # Cosine annealing after warmup
+        cosine_scheduler = CosineAnnealingLR(
+            optimizer,
+            T_max=total_epochs - warmup_epochs,
+        )
+        
+        # Combine: warmup → cosine
+        scheduler = SequentialLR(
+            optimizer,
+            schedulers=[warmup_scheduler, cosine_scheduler],
+            milestones=[warmup_epochs],
+        )
+    else:
+        # No warmup, just cosine
+        scheduler = CosineAnnealingLR(
+            optimizer,
+            T_max=total_epochs,
+        )
     
     return optimizer, scheduler
 
@@ -478,14 +526,14 @@ if __name__ == "__main__":
     print("\n[4/5] Testing get_optimizer_and_scheduler...")
     from src.models import create_model
     model = create_model(num_classes=100)
-    optimizer, scheduler = get_optimizer_and_scheduler(model, total_epochs=200)
+    optimizer, scheduler = get_optimizer_and_scheduler(model, total_epochs=200, warmup_epochs=5)
     
     assert isinstance(optimizer, torch.optim.SGD), "Expected SGD optimizer"
-    assert optimizer.defaults["lr"] == 0.05, f"Expected lr=0.05, got {optimizer.defaults['lr']}"
+    assert optimizer.defaults["lr"] == 0.4, f"Expected lr=0.4, got {optimizer.defaults['lr']}"
     assert optimizer.defaults["momentum"] == 0.9, "Expected momentum=0.9"
     assert optimizer.defaults["weight_decay"] == 1e-3, "Expected weight_decay=1e-3"
     print(f"      Optimizer: {optimizer.__class__.__name__}")
-    print(f"      Scheduler: {scheduler.__class__.__name__}")
+    print(f"      Scheduler: {scheduler.__class__.__name__} (with warmup)")
     print("      ✓ Optimizer and scheduler check passed")
     
     # Test 5: ensure_dir
