@@ -118,9 +118,6 @@ echo "配置: 200 epochs, min_epochs=60, patience=60"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${SINGLE_GPU} python run_baseline.py \
-    --epochs 200 \
-    --min_epochs 60 \
-    --early_stop_patience 60 \
     2>&1 | tee "${LOG_DIR}/baseline_${TIMESTAMP}.log"
 
 END_TIME=$(date +%s)
@@ -141,43 +138,23 @@ OPS_GPU2="RandomGrayscale,GaussianBlur"
 OPS_GPU3="RandomErasing,GaussianNoise"
 
 CUDA_VISIBLE_DEVICES=0 nohup python -u main_phase_a.py \
-    --epochs 200 \
-    --n_samples 32 \
-    --min_epochs 60 \
-    --early_stop_patience 60 \
     --ops ${OPS_GPU0} \
     --output_dir "${OUTPUT_DIR}/gpu0" \
-    --num_workers 6 \
     > "${LOG_DIR}/phase_a_gpu0_${TIMESTAMP}.log" 2>&1 &
 
 CUDA_VISIBLE_DEVICES=1 nohup python -u main_phase_a.py \
-    --epochs 200 \
-    --n_samples 32 \
-    --min_epochs 60 \
-    --early_stop_patience 60 \
     --ops ${OPS_GPU1} \
     --output_dir "${OUTPUT_DIR}/gpu1" \
-    --num_workers 6 \
     > "${LOG_DIR}/phase_a_gpu1_${TIMESTAMP}.log" 2>&1 &
 
 CUDA_VISIBLE_DEVICES=2 nohup python -u main_phase_a.py \
-    --epochs 200 \
-    --n_samples 32 \
-    --min_epochs 60 \
-    --early_stop_patience 60 \
     --ops ${OPS_GPU2} \
     --output_dir "${OUTPUT_DIR}/gpu2" \
-    --num_workers 6 \
     > "${LOG_DIR}/phase_a_gpu2_${TIMESTAMP}.log" 2>&1 &
 
 CUDA_VISIBLE_DEVICES=3 nohup python -u main_phase_a.py \
-    --epochs 200 \
-    --n_samples 32 \
-    --min_epochs 60 \
-    --early_stop_patience 60 \
     --ops ${OPS_GPU3} \
     --output_dir "${OUTPUT_DIR}/gpu3" \
-    --num_workers 6 \
     > "${LOG_DIR}/phase_a_gpu3_${TIMESTAMP}.log" 2>&1 &
 
 wait_for_jobs
@@ -202,47 +179,27 @@ echo "配置: ASHA 早停淘汰赛, rungs=[30,80,200], 每 GPU 处理 2 ops"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=0 nohup python -u main_phase_b.py \
-    --rungs 30,80,200 \
-    --n_samples 30 \
-    --reduction_factor 3 \
     --ops ${OPS_GPU0} \
     --phase_a_csv "${OUTPUT_DIR}/phase_a_results.csv" \
-    --baseline_csv "${OUTPUT_DIR}/baseline_result.csv" \
     --output_dir "${OUTPUT_DIR}/gpu0" \
-    --num_workers 6 \
     > "${LOG_DIR}/phase_b_gpu0_${TIMESTAMP}.log" 2>&1 &
 
 CUDA_VISIBLE_DEVICES=1 nohup python -u main_phase_b.py \
-    --rungs 30,80,200 \
-    --n_samples 30 \
-    --reduction_factor 3 \
     --ops ${OPS_GPU1} \
     --phase_a_csv "${OUTPUT_DIR}/phase_a_results.csv" \
-    --baseline_csv "${OUTPUT_DIR}/baseline_result.csv" \
     --output_dir "${OUTPUT_DIR}/gpu1" \
-    --num_workers 6 \
     > "${LOG_DIR}/phase_b_gpu1_${TIMESTAMP}.log" 2>&1 &
 
 CUDA_VISIBLE_DEVICES=2 nohup python -u main_phase_b.py \
-    --rungs 30,80,200 \
-    --n_samples 30 \
-    --reduction_factor 3 \
     --ops ${OPS_GPU2} \
     --phase_a_csv "${OUTPUT_DIR}/phase_a_results.csv" \
-    --baseline_csv "${OUTPUT_DIR}/baseline_result.csv" \
     --output_dir "${OUTPUT_DIR}/gpu2" \
-    --num_workers 6 \
     > "${LOG_DIR}/phase_b_gpu2_${TIMESTAMP}.log" 2>&1 &
 
 CUDA_VISIBLE_DEVICES=3 nohup python -u main_phase_b.py \
-    --rungs 30,80,200 \
-    --n_samples 30 \
-    --reduction_factor 3 \
     --ops ${OPS_GPU3} \
     --phase_a_csv "${OUTPUT_DIR}/phase_a_results.csv" \
-    --baseline_csv "${OUTPUT_DIR}/baseline_result.csv" \
     --output_dir "${OUTPUT_DIR}/gpu3" \
-    --num_workers 6 \
     > "${LOG_DIR}/phase_b_gpu3_${TIMESTAMP}.log" 2>&1 &
 
 wait_for_jobs
@@ -286,13 +243,7 @@ echo "注意: Phase C 使用贪心算法，无法并行化"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${SINGLE_GPU} python main_phase_c.py \
-    --epochs 200 \
-    --seeds 42,123,456 \
-    --max_ops 3 \
-    --improvement_threshold 0.3 \
-    --phase_b_csv "${OUTPUT_DIR}/phase_b_tuning_summary.csv" \
     --output_dir "${OUTPUT_DIR}" \
-    --num_workers 6 \
     2>&1 | tee "${LOG_DIR}/phase_c_${TIMESTAMP}.log"
 
 END_TIME=$(date +%s)
@@ -308,43 +259,27 @@ START_TIME=$(date +%s)
 
 # 5 folds 分配到 4 GPU: GPU0=fold0,1, GPU1=fold2, GPU2=fold3, GPU3=fold4
 CUDA_VISIBLE_DEVICES=0 nohup python -u main_phase_d.py \
-    --epochs 200 \
-    --seed 42 \
-    --methods Baseline,RandAugment,Cutout,Ours_p1,Ours_optimal \
     --folds 0,1 \
     --policy_json "${OUTPUT_DIR}/phase_c_final_policy.json" \
     --output_dir "${OUTPUT_DIR}/gpu0" \
-    --num_workers 6 \
     > "${LOG_DIR}/phase_d_gpu0_${TIMESTAMP}.log" 2>&1 &
 
 CUDA_VISIBLE_DEVICES=1 nohup python -u main_phase_d.py \
-    --epochs 200 \
-    --seed 42 \
-    --methods Baseline,RandAugment,Cutout,Ours_p1,Ours_optimal \
     --folds 2 \
     --policy_json "${OUTPUT_DIR}/phase_c_final_policy.json" \
     --output_dir "${OUTPUT_DIR}/gpu1" \
-    --num_workers 6 \
     > "${LOG_DIR}/phase_d_gpu1_${TIMESTAMP}.log" 2>&1 &
 
 CUDA_VISIBLE_DEVICES=2 nohup python -u main_phase_d.py \
-    --epochs 200 \
-    --seed 42 \
-    --methods Baseline,RandAugment,Cutout,Ours_p1,Ours_optimal \
     --folds 3 \
     --policy_json "${OUTPUT_DIR}/phase_c_final_policy.json" \
     --output_dir "${OUTPUT_DIR}/gpu2" \
-    --num_workers 6 \
     > "${LOG_DIR}/phase_d_gpu2_${TIMESTAMP}.log" 2>&1 &
 
 CUDA_VISIBLE_DEVICES=3 nohup python -u main_phase_d.py \
-    --epochs 200 \
-    --seed 42 \
-    --methods Baseline,RandAugment,Cutout,Ours_p1,Ours_optimal \
     --folds 4 \
     --policy_json "${OUTPUT_DIR}/phase_c_final_policy.json" \
     --output_dir "${OUTPUT_DIR}/gpu3" \
-    --num_workers 6 \
     > "${LOG_DIR}/phase_d_gpu3_${TIMESTAMP}.log" 2>&1 &
 
 wait_for_jobs

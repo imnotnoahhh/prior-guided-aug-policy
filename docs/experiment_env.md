@@ -59,7 +59,7 @@ python run_baseline.py \
     --early_stop_patience 60 \
     --batch_size 128 \
     --seed 42 \
-    --num_workers 6
+    --num_workers 8
 ```
 
 > **v5.1 早停策略**: Baseline 使用 `min_epochs=60, patience=60, monitor=val_acc`。

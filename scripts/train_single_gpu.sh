@@ -90,9 +90,6 @@ echo "配置: 200 epochs, min_epochs=60, patience=60"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${GPU_ID} python run_baseline.py \
-    --epochs 200 \
-    --min_epochs 60 \
-    --early_stop_patience 60 \
     2>&1 | tee "${LOG_DIR}/baseline_${TIMESTAMP}.log"
 
 END_TIME=$(date +%s)
@@ -107,12 +104,7 @@ echo "配置: 8 ops × 32 samples × 200 epochs, min_epochs=60, patience=60"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${GPU_ID} python main_phase_a.py \
-    --epochs 200 \
-    --n_samples 32 \
-    --min_epochs 60 \
-    --early_stop_patience 60 \
     --output_dir "${OUTPUT_DIR}" \
-    --num_workers 6 \
     2>&1 | tee "${LOG_DIR}/phase_a_${TIMESTAMP}.log"
 
 END_TIME=$(date +%s)
@@ -127,13 +119,7 @@ echo "配置: ASHA 早停淘汰赛, rungs=[30,80,200], Sobol 30 samples/op"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${GPU_ID} python main_phase_b.py \
-    --rungs 30,80,200 \
-    --n_samples 30 \
-    --reduction_factor 3 \
-    --phase_a_csv "${OUTPUT_DIR}/phase_a_results.csv" \
-    --baseline_csv "${OUTPUT_DIR}/baseline_result.csv" \
     --output_dir "${OUTPUT_DIR}" \
-    --num_workers 6 \
     2>&1 | tee "${LOG_DIR}/phase_b_${TIMESTAMP}.log"
 
 END_TIME=$(date +%s)
@@ -148,13 +134,7 @@ echo "配置: Greedy × 3 seeds × 200 epochs (与 A/B 一致)"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${GPU_ID} python main_phase_c.py \
-    --epochs 200 \
-    --seeds 42,123,456 \
-    --max_ops 3 \
-    --improvement_threshold 0.3 \
-    --phase_b_csv "${OUTPUT_DIR}/phase_b_tuning_summary.csv" \
     --output_dir "${OUTPUT_DIR}" \
-    --num_workers 6 \
     2>&1 | tee "${LOG_DIR}/phase_c_${TIMESTAMP}.log"
 
 END_TIME=$(date +%s)
@@ -169,13 +149,8 @@ echo "配置: 5 methods × 5 folds × 200 epochs (与 A/B 一致)"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${GPU_ID} python main_phase_d.py \
-    --epochs 200 \
-    --seed 42 \
-    --methods Baseline,RandAugment,Cutout,Ours_p1,Ours_optimal \
-    --folds 0,1,2,3,4 \
     --policy_json "${OUTPUT_DIR}/phase_c_final_policy.json" \
     --output_dir "${OUTPUT_DIR}" \
-    --num_workers 6 \
     2>&1 | tee "${LOG_DIR}/phase_d_${TIMESTAMP}.log"
 
 END_TIME=$(date +%s)
