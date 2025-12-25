@@ -4,7 +4,14 @@ PyTorch Profiler 脚本 - 分析训练瓶颈
 用法:
     python scripts/profile_training.py
     python scripts/profile_training.py --batch_size 256
+    python scripts/profile_training.py --batch_size 1024 --disable_amp
     python scripts/profile_training.py --batch_size 256 --record_shapes --profile_memory
+
+v2 更新:
+- 添加 --disable_amp 选项避免 GradScaler 的隐式同步 (step/update 内部会检查 inf/nan)
+- 添加 DataLoader 优化参数: --pin_memory, --persistent_workers, --prefetch_factor, --drop_last
+- 移除 profiling 循环内的所有潜在同步操作
+- warmup 阶段的 synchronize 移到 profiler 外部
 """
 import argparse
 import sys
@@ -32,14 +39,33 @@ def run_profiler(
     warmup_batches: int = 5,
     record_shapes: bool = False,
     profile_memory: bool = False,
+    disable_amp: bool = False,
+    pin_memory: bool = True,
+    persistent_workers: bool = True,
+    prefetch_factor: int = 4,
+    drop_last: bool = True,
 ):
-    """运行 profiler 分析训练瓶颈"""
+    """运行 profiler 分析训练瓶颈
+    
+    Args:
+        batch_size: 批次大小
+        num_workers: DataLoader worker 数量
+        num_batches: 要 profile 的批次数 (active steps)
+        warmup_batches: profiler 外部的预热批次数
+        record_shapes: 是否记录 tensor shapes (增加开销)
+        profile_memory: 是否 profile 内存使用 (增加开销)
+        disable_amp: 禁用 AMP 以避免 GradScaler 的隐式同步
+        pin_memory: DataLoader pin_memory
+        persistent_workers: DataLoader persistent_workers
+        prefetch_factor: DataLoader prefetch_factor
+        drop_last: DataLoader drop_last
+    """
     
     set_seed_deterministic(42)
     device = get_device()
     
     print("=" * 70)
-    print("PyTorch Profiler - 训练瓶颈分析")
+    print("PyTorch Profiler - 训练瓶颈分析 (v2)")
     print("=" * 70)
     print(f"Device: {device}")
     print(f"Batch size: {batch_size}")
@@ -48,6 +74,10 @@ def run_profiler(
     print(f"Profile batches: {num_batches}")
     print(f"Record shapes: {record_shapes}")
     print(f"Profile memory: {profile_memory}")
+    print("-" * 70)
+    print(f"AMP: {'DISABLED' if disable_amp else 'enabled'}")
+    print(f"DataLoader: pin_memory={pin_memory}, persistent_workers={persistent_workers}, "
+          f"prefetch_factor={prefetch_factor}, drop_last={drop_last}")
     print("=" * 70)
     
     # 使用一个典型的增强配置
@@ -69,18 +99,23 @@ def run_profiler(
         download=True,
     )
     
-    # 创建 DataLoader
+    # 创建 DataLoader (优化配置)
     use_cuda = device.type == "cuda"
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-        pin_memory=use_cuda,
-        drop_last=False,
-        persistent_workers=True if num_workers > 0 else False,
-        prefetch_factor=4 if num_workers > 0 else None,
-    )
+    loader_kwargs = {
+        "batch_size": batch_size,
+        "shuffle": True,
+        "num_workers": num_workers,
+        "pin_memory": pin_memory if use_cuda else False,
+        "drop_last": drop_last,
+    }
+    # persistent_workers 和 prefetch_factor 需要 num_workers > 0
+    if num_workers > 0:
+        loader_kwargs["persistent_workers"] = persistent_workers
+        loader_kwargs["prefetch_factor"] = prefetch_factor
+    
+    train_loader = DataLoader(train_dataset, **loader_kwargs)
+    
+    print(f"\nDataLoader 配置: {loader_kwargs}")
     
     # 创建模型
     model = create_model(num_classes=100, pretrained=False)
@@ -89,11 +124,14 @@ def run_profiler(
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.05, momentum=0.9, weight_decay=1e-3)
     
-    # AMP scaler
+    # AMP scaler (可选) - GradScaler.step() 内部会检查 inf/nan 可能导致隐式同步
     scaler = None
-    use_amp = device.type == "cuda"
+    use_amp = use_cuda and not disable_amp
     if use_amp:
         scaler = torch.amp.GradScaler()
+        print("\nAMP 已启用 (注意: GradScaler 可能引入隐式同步)")
+    else:
+        print(f"\nAMP 已{'禁用' if disable_amp else '不可用 (非 CUDA 设备)'}")
     
     print("\n开始 Profiling...")
     print("-" * 70)
@@ -112,7 +150,8 @@ def run_profiler(
         images = images.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
         
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)  # 更高效
+        
         if use_amp:
             with torch.amp.autocast(device_type="cuda"):
                 outputs = model(images)
@@ -126,7 +165,8 @@ def run_profiler(
             loss.backward()
             optimizer.step()
     
-    # Sync before profiling to ensure warmup is complete
+    # Sync ONCE before profiling to ensure warmup is complete
+    # This is OUTSIDE the profiler, so it won't affect measurements
     if use_cuda:
         torch.cuda.synchronize()
     
@@ -151,6 +191,15 @@ def run_profiler(
         repeat=1,
     )
     
+    # =========================================================================
+    # PROFILING LOOP - 严格禁止以下操作:
+    # - .item() / float(tensor) / int(tensor)
+    # - tensor.cpu() / tensor.numpy()
+    # - torch.cuda.synchronize()
+    # - print(tensor) / tqdm.set_postfix(tensor)
+    # - 任何会触发 GPU-CPU 同步的操作
+    # =========================================================================
+    
     with profile(
         activities=activities,
         schedule=prof_sched,
@@ -170,7 +219,7 @@ def run_profiler(
                 images = images.to(device, non_blocking=True)
                 labels = labels.to(device, non_blocking=True)
             
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
             
             if use_amp:
                 with record_function("forward"):
@@ -195,6 +244,7 @@ def run_profiler(
                 with record_function("optimizer_step"):
                     optimizer.step()
             
+            # CRITICAL: No .item(), no print, no sync here!
             # Must call prof.step() at the end of each iteration
             prof.step()
     
@@ -240,12 +290,22 @@ def run_profiler(
         print(f"前向传播占比: ~{forward_time/total_cpu_time*100:.1f}%")
         print(f"反向传播占比: ~{backward_time/total_cpu_time*100:.1f}%")
         
+        # 检查同步操作
+        sync_ops = [item for item in key_averages 
+                    if "item" in item.key.lower() or "synchronize" in item.key.lower()]
+        if sync_ops:
+            print("\n⚠️  检测到潜在同步操作:")
+            for op in sync_ops:
+                print(f"    - {op.key}: count={op.count}, cpu_time={op.cpu_time_total/1000:.2f}ms")
+            print("    建议使用 --disable_amp 禁用 AMP 重新 profile")
+        
         print("\n建议:")
         if data_time / total_cpu_time > 0.3:
             print("  ⚠️  数据加载占比较高，建议:")
             print("      - 增加 num_workers")
             print("      - 检查数据增强是否过于复杂")
             print("      - 考虑预加载数据到内存")
+            print("      - 确保 pin_memory=True, persistent_workers=True")
         
         if device.type == "cuda":
             try:
@@ -255,6 +315,7 @@ def run_profiler(
                     print("  ⚠️  GPU 利用率可能较低，建议:")
                     print("      - 增大 batch_size")
                     print("      - 检查是否有 CPU-GPU 同步瓶颈")
+                    print("      - 尝试 --disable_amp 看同步是否减少")
             except:
                 print("  (无法获取 CUDA 时间统计)")
     else:
@@ -266,13 +327,59 @@ def run_profiler(
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="PyTorch Profiler - 训练瓶颈分析")
-    parser.add_argument("--batch_size", type=int, default=64, help="Batch size")
-    parser.add_argument("--num_workers", type=int, default=6, help="DataLoader workers")
-    parser.add_argument("--num_batches", type=int, default=20, help="Number of batches to profile (active steps)")
-    parser.add_argument("--warmup_batches", type=int, default=5, help="Pre-profiler warmup batches")
-    parser.add_argument("--record_shapes", action="store_true", help="Record tensor shapes (adds overhead)")
-    parser.add_argument("--profile_memory", action="store_true", help="Profile memory usage (adds overhead)")
+    parser = argparse.ArgumentParser(
+        description="PyTorch Profiler - 训练瓶颈分析",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例用法:
+  # 基础 profiling
+  python scripts/profile_training.py --batch_size 512
+  
+  # 禁用 AMP 避免 GradScaler 同步 (推荐用于诊断同步问题)
+  python scripts/profile_training.py --batch_size 1024 --disable_amp
+  
+  # 优化 DataLoader 配置
+  python scripts/profile_training.py --batch_size 1024 --num_workers 8 --prefetch_factor 8
+  
+  # 完整诊断模式
+  python scripts/profile_training.py --batch_size 1024 --disable_amp --record_shapes --profile_memory
+"""
+    )
+    
+    # 基础参数
+    parser.add_argument("--batch_size", type=int, default=64, help="Batch size (default: 64)")
+    parser.add_argument("--num_workers", type=int, default=6, help="DataLoader workers (default: 6)")
+    parser.add_argument("--num_batches", type=int, default=20, 
+                        help="Number of batches to profile (active steps, default: 20)")
+    parser.add_argument("--warmup_batches", type=int, default=5, 
+                        help="Pre-profiler warmup batches (default: 5)")
+    
+    # Profiler 选项
+    parser.add_argument("--record_shapes", action="store_true", 
+                        help="Record tensor shapes (adds overhead)")
+    parser.add_argument("--profile_memory", action="store_true", 
+                        help="Profile memory usage (adds overhead)")
+    
+    # 同步控制
+    parser.add_argument("--disable_amp", action="store_true",
+                        help="Disable AMP to avoid GradScaler implicit sync (recommended for diagnosing sync issues)")
+    
+    # DataLoader 优化参数
+    parser.add_argument("--pin_memory", action="store_true", default=True,
+                        help="Enable pin_memory for faster H2D transfer (default: True)")
+    parser.add_argument("--no_pin_memory", action="store_false", dest="pin_memory",
+                        help="Disable pin_memory")
+    parser.add_argument("--persistent_workers", action="store_true", default=True,
+                        help="Enable persistent_workers (default: True)")
+    parser.add_argument("--no_persistent_workers", action="store_false", dest="persistent_workers",
+                        help="Disable persistent_workers")
+    parser.add_argument("--prefetch_factor", type=int, default=4,
+                        help="DataLoader prefetch_factor (default: 4, try 8 for large batches)")
+    parser.add_argument("--drop_last", action="store_true", default=True,
+                        help="Drop last incomplete batch (default: True)")
+    parser.add_argument("--no_drop_last", action="store_false", dest="drop_last",
+                        help="Keep last incomplete batch")
+    
     return parser.parse_args()
 
 
@@ -285,4 +392,9 @@ if __name__ == "__main__":
         warmup_batches=args.warmup_batches,
         record_shapes=args.record_shapes,
         profile_memory=args.profile_memory,
+        disable_amp=args.disable_amp,
+        pin_memory=args.pin_memory,
+        persistent_workers=args.persistent_workers,
+        prefetch_factor=args.prefetch_factor,
+        drop_last=args.drop_last,
     )
