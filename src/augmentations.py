@@ -499,6 +499,113 @@ def build_transform_with_op(
     return transforms.Compose(final_transforms)
 
 
+def build_transform_with_ops(
+    ops: list,
+    include_baseline: bool = True,
+    include_normalize: bool = False,
+) -> transforms.Compose:
+    """Build complete transform pipeline with S0 + multiple candidate ops.
+    
+    Args:
+        ops: List of (op_name, magnitude, probability) tuples.
+        include_baseline: If True, include S0 baseline transforms.
+        include_normalize: If True, add normalization at the end.
+        
+    Returns:
+        Composed transform pipeline.
+    """
+    pil_transforms = []
+    tensor_transforms = []
+    
+    # Operations that work on PIL images (before ToTensor)
+    PIL_OPS = {
+        "RandomResizedCrop", "RandomRotation", "RandomPerspective",
+        "ColorJitter", "RandomGrayscale", "GaussianBlur"
+    }
+    
+    # Operations that work on tensors (after ToTensor)
+    TENSOR_OPS = {"RandomErasing", "GaussianNoise"}
+    
+    # Check if any op is RandomResizedCrop (mutual exclusion with RandomCrop)
+    has_rrc = any(op[0] == "RandomResizedCrop" for op in ops)
+    
+    # Add S0 baseline if requested
+    if include_baseline:
+        if has_rrc:
+            # Skip S0's RandomCrop, use RandomResizedCrop from ops
+            pil_transforms.append(transforms.RandomHorizontalFlip(p=0.5))
+        else:
+            # Normal S0: RandomCrop + RandomHorizontalFlip
+            pil_transforms.append(transforms.RandomCrop(32, padding=4))
+            pil_transforms.append(transforms.RandomHorizontalFlip(p=0.5))
+    
+    # Add each operation
+    for op_name, magnitude, probability in ops:
+        op_transform = create_op_transform(op_name, magnitude)
+        
+        # Wrap with ProbabilisticTransform if probability < 1.0
+        if probability < 1.0:
+            op_transform = ProbabilisticTransform(op_transform, p=probability)
+        
+        if op_name in PIL_OPS:
+            if op_name == "RandomResizedCrop":
+                pil_transforms.insert(0, op_transform)
+            else:
+                pil_transforms.append(op_transform)
+        elif op_name in TENSOR_OPS:
+            tensor_transforms.append(op_transform)
+    
+    # Build final pipeline
+    final_transforms = pil_transforms + [transforms.ToTensor()] + tensor_transforms
+    
+    if include_normalize:
+        final_transforms.append(
+            transforms.Normalize(mean=CIFAR100_MEAN, std=CIFAR100_STD)
+        )
+    
+    return transforms.Compose(final_transforms)
+
+
+def get_compatible_ops(current_ops: list) -> list:
+    """Get list of ops compatible with current policy (no mutual exclusion).
+    
+    Args:
+        current_ops: List of op_names already in the policy.
+        
+    Returns:
+        List of op_names that can be added without conflict.
+    """
+    all_ops = AugmentationSpace.get_available_ops()
+    compatible = []
+    
+    for op in all_ops:
+        if op in current_ops:
+            continue
+        # Check mutual exclusion with all current ops
+        is_compatible = True
+        for current_op in current_ops:
+            if AugmentationSpace.is_mutually_exclusive(op, current_op):
+                is_compatible = False
+                break
+        if is_compatible:
+            compatible.append(op)
+    
+    return compatible
+
+
+def check_mutual_exclusion(op1: str, op2: str) -> bool:
+    """Check if two operations are mutually exclusive.
+    
+    Args:
+        op1: First operation name.
+        op2: Second operation name.
+        
+    Returns:
+        True if mutually exclusive, False otherwise.
+    """
+    return AugmentationSpace.is_mutually_exclusive(op1, op2)
+
+
 # =============================================================================
 # Self-Test
 # =============================================================================
