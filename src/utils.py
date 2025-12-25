@@ -143,8 +143,9 @@ def train_one_epoch(
     """
     model.train()
     
-    total_loss = 0.0
-    correct = 0
+    # Use tensors to accumulate, avoid GPU-CPU sync per batch
+    total_loss = torch.tensor(0.0, device=device)
+    correct = torch.tensor(0, device=device)
     total = 0
     num_batches = 0
     skipped_batches = 0
@@ -180,11 +181,11 @@ def train_one_epoch(
                 loss.backward()
                 optimizer.step()
             
-            # Statistics
-            total_loss += loss.item()
+            # Statistics - accumulate as tensors to avoid GPU-CPU sync per batch
+            total_loss += loss.detach()
             _, predicted = outputs.max(1)
             total += labels.size(0)
-            correct += predicted.eq(labels).sum().item()
+            correct += predicted.eq(labels).sum()
             num_batches += 1
             
         except RuntimeError as e:
@@ -202,8 +203,9 @@ def train_one_epoch(
     if num_batches == 0:
         raise RuntimeError("All batches were skipped due to OOM!")
     
-    avg_loss = total_loss / num_batches
-    accuracy = 100.0 * correct / total if total > 0 else 0.0
+    # Single GPU-CPU sync at end of epoch
+    avg_loss = (total_loss / num_batches).item()
+    accuracy = 100.0 * correct.item() / total if total > 0 else 0.0
     
     if skipped_batches > 0:
         print(f"WARNING: Skipped {skipped_batches} batches due to OOM")
@@ -236,9 +238,10 @@ def evaluate(
     """
     model.eval()
     
-    total_loss = 0.0
-    correct_top1 = 0
-    correct_top5 = 0
+    # Use tensors to accumulate, avoid GPU-CPU sync per batch
+    total_loss = torch.tensor(0.0, device=device)
+    correct_top1 = torch.tensor(0, device=device)
+    correct_top5 = torch.tensor(0, device=device)
     total = 0
     num_batches = 0
     
@@ -250,22 +253,24 @@ def evaluate(
             outputs = model(images)
             loss = criterion(outputs, labels)
             
-            total_loss += loss.item()
+            # Accumulate as tensors to avoid GPU-CPU sync per batch
+            total_loss += loss.detach()
             
             # Top-1 accuracy
             _, predicted = outputs.max(1)
-            correct_top1 += predicted.eq(labels).sum().item()
+            correct_top1 += predicted.eq(labels).sum()
             
             # Top-5 accuracy
             _, top5_pred = outputs.topk(5, dim=1, largest=True, sorted=True)
-            correct_top5 += top5_pred.eq(labels.view(-1, 1).expand_as(top5_pred)).any(dim=1).sum().item()
+            correct_top5 += top5_pred.eq(labels.view(-1, 1).expand_as(top5_pred)).any(dim=1).sum()
             
             total += labels.size(0)
             num_batches += 1
     
-    avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
-    top1_acc = 100.0 * correct_top1 / total if total > 0 else 0.0
-    top5_acc = 100.0 * correct_top5 / total if total > 0 else 0.0
+    # Single GPU-CPU sync at end of evaluation
+    avg_loss = (total_loss / num_batches).item() if num_batches > 0 else 0.0
+    top1_acc = 100.0 * correct_top1.item() / total if total > 0 else 0.0
+    top5_acc = 100.0 * correct_top5.item() / total if total > 0 else 0.0
     
     return avg_loss, top1_acc, top5_acc
 

@@ -16,6 +16,7 @@ Changelog (v4 → v5):
 - [CHANGED] build_transform_with_op: now accepts probability parameter
 """
 
+import random
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
@@ -95,7 +96,8 @@ class ProbabilisticTransform(nn.Module):
             return self.transform(img)
         if self.p <= 0.0:
             return img
-        if torch.rand(1).item() < self.p:
+        # Use random.random() to avoid torch tensor creation and GPU-CPU sync
+        if random.random() < self.p:
             return self.transform(img)
         return img
     
