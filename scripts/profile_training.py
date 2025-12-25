@@ -3,14 +3,17 @@
 PyTorch Profiler 脚本 - 分析训练瓶颈
 用法:
     python scripts/profile_training.py
-    python scripts/profile_training.py --batch_size 256
-    python scripts/profile_training.py --batch_size 1024 --disable_amp --channels_last
-    python scripts/profile_training.py --batch_size 256 --record_shapes --profile_memory
+    python scripts/profile_training.py --batch_size 512 --num_workers 20
+    python scripts/profile_training.py --batch_size 512 --num_workers 20 --disable_amp
+    python scripts/profile_training.py --batch_size 512 --record_shapes --profile_memory
+
+v4 更新:
+- 默认参数改为 batch_size=512, num_workers=20
+- 始终启用 channels_last 内存格式（模型和输入）
+- 移除 --channels_last 参数（现在始终启用）
 
 v3 更新:
-- 移除所有 torch.cuda.synchronize() 调用（包括 warmup 后的）
-- 添加 --channels_last 选项启用 NHWC 格式避免 nchwToNhwcKernel 转换
-- 模型和输入都使用 memory_format=torch.channels_last
+- 移除所有 torch.cuda.synchronize() 调用
 - warmup 使用额外的 pre-profiler batches 替代显式同步
 
 v2 更新:
@@ -37,14 +40,13 @@ from src.utils import set_seed_deterministic, get_device
 
 
 def run_profiler(
-    batch_size: int = 64,
-    num_workers: int = 6,
+    batch_size: int = 512,
+    num_workers: int = 20,
     num_batches: int = 20,
     warmup_batches: int = 5,
     record_shapes: bool = False,
     profile_memory: bool = False,
     disable_amp: bool = False,
-    channels_last: bool = False,
     pin_memory: bool = True,
     persistent_workers: bool = True,
     prefetch_factor: int = 4,
@@ -53,14 +55,13 @@ def run_profiler(
     """运行 profiler 分析训练瓶颈
     
     Args:
-        batch_size: 批次大小
-        num_workers: DataLoader worker 数量
+        batch_size: 批次大小 (default: 512)
+        num_workers: DataLoader worker 数量 (default: 20)
         num_batches: 要 profile 的批次数 (active steps)
         warmup_batches: profiler 外部的预热批次数
         record_shapes: 是否记录 tensor shapes (增加开销)
         profile_memory: 是否 profile 内存使用 (增加开销)
         disable_amp: 禁用 AMP 以避免 GradScaler 的隐式同步
-        channels_last: 启用 NHWC 内存格式避免 nchwToNhwcKernel 转换
         pin_memory: DataLoader pin_memory
         persistent_workers: DataLoader persistent_workers
         prefetch_factor: DataLoader prefetch_factor
@@ -69,9 +70,10 @@ def run_profiler(
     
     set_seed_deterministic(42)
     device = get_device()
+    use_cuda = device.type == "cuda"
     
     print("=" * 70)
-    print("PyTorch Profiler - 训练瓶颈分析 (v3)")
+    print("PyTorch Profiler - 训练瓶颈分析 (v4)")
     print("=" * 70)
     print(f"Device: {device}")
     print(f"Batch size: {batch_size}")
@@ -82,7 +84,7 @@ def run_profiler(
     print(f"Profile memory: {profile_memory}")
     print("-" * 70)
     print(f"AMP: {'DISABLED' if disable_amp else 'enabled'}")
-    print(f"Channels last (NHWC): {'ENABLED' if channels_last else 'disabled'}")
+    print(f"Channels last (NHWC): ALWAYS ENABLED")
     print(f"DataLoader: pin_memory={pin_memory}, persistent_workers={persistent_workers}, "
           f"prefetch_factor={prefetch_factor}, drop_last={drop_last}")
     print("=" * 70)
@@ -107,7 +109,6 @@ def run_profiler(
     )
     
     # 创建 DataLoader (优化配置)
-    use_cuda = device.type == "cuda"
     loader_kwargs = {
         "batch_size": batch_size,
         "shuffle": True,
@@ -124,15 +125,10 @@ def run_profiler(
     
     print(f"\nDataLoader 配置: {loader_kwargs}")
     
-    # 创建模型
+    # 创建模型，始终使用 channels_last 内存格式
     model = create_model(num_classes=100, pretrained=False)
-    
-    # 启用 channels_last 内存格式 (避免 nchwToNhwcKernel 转换)
-    if channels_last and use_cuda:
-        model = model.to(device, memory_format=torch.channels_last)
-        print(f"模型已转换为 channels_last (NHWC) 格式")
-    else:
-        model = model.to(device)
+    model = model.to(device).to(memory_format=torch.channels_last)
+    print("模型已转换为 channels_last (NHWC) 格式")
     
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.05, momentum=0.9, weight_decay=1e-3)
@@ -164,12 +160,8 @@ def run_profiler(
             data_iter = iter(train_loader)
             images, labels = next(data_iter)
         
-        # non_blocking=True for async H2D transfer
-        if channels_last and use_cuda:
-            # 转换为 channels_last 格式避免 nchwToNhwcKernel
-            images = images.to(device, non_blocking=True, memory_format=torch.channels_last)
-        else:
-            images = images.to(device, non_blocking=True)
+        # H2D copy 时直接生成 channels_last，避免 GPU 上的 nchwToNhwcKernel 转换
+        images = images.to(device, non_blocking=True, memory_format=torch.channels_last)
         labels = labels.to(device, non_blocking=True)
         
         optimizer.zero_grad(set_to_none=True)
@@ -200,11 +192,11 @@ def run_profiler(
     if device.type == "cuda":
         activities.append(ProfilerActivity.CUDA)
     
-    # Schedule: wait=2, warmup=2, active=num_batches
+    # Schedule: wait=3, warmup=2, active=num_batches
     # wait 阶段: profiler 不收集数据，但 GPU 继续运行 (替代 synchronize)
     # warmup 阶段: profiler 开始收集但结果会被丢弃
     # active 阶段: 真正收集的数据
-    prof_wait = 3  # 增加 wait 步数替代 synchronize
+    prof_wait = 3
     prof_warmup = 2
     prof_active = num_batches
     total_steps = prof_wait + prof_warmup + prof_active
@@ -240,12 +232,8 @@ def run_profiler(
                 images, labels = next(data_iter)
             
             with record_function("data_to_device"):
-                # non_blocking=True for async H2D transfer
-                if channels_last and use_cuda:
-                    # 转换为 channels_last 格式避免 nchwToNhwcKernel
-                    images = images.to(device, non_blocking=True, memory_format=torch.channels_last)
-                else:
-                    images = images.to(device, non_blocking=True)
+                # H2D copy 时直接生成 channels_last，避免 GPU 上的 nchwToNhwcKernel 转换
+                images = images.to(device, non_blocking=True, memory_format=torch.channels_last)
                 labels = labels.to(device, non_blocking=True)
             
             optimizer.zero_grad(set_to_none=True)
@@ -336,10 +324,8 @@ def run_profiler(
         if layout_ops:
             print("\n⚠️  检测到内存布局转换:")
             for op in layout_ops:
-                # 使用 self_cuda_time_total (FunctionEventAvg 的正确属性)
                 cuda_time = getattr(op, 'self_cuda_time_total', 0) or 0
                 print(f"    - {op.key}: count={op.count}, cuda_time={cuda_time/1000:.2f}ms")
-            print("    建议使用 --channels_last 消除布局转换")
         else:
             print("✅ 未检测到 NCHW/NHWC 布局转换")
         
@@ -377,26 +363,23 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例用法:
-  # 基础 profiling
-  python scripts/profile_training.py --batch_size 512
+  # 基础 profiling (使用默认参数: batch_size=512, num_workers=20)
+  python scripts/profile_training.py
   
   # 禁用 AMP 避免 GradScaler 同步 (推荐用于诊断同步问题)
-  python scripts/profile_training.py --batch_size 1024 --disable_amp
-  
-  # 启用 channels_last 避免 NCHW→NHWC 转换 (推荐)
-  python scripts/profile_training.py --batch_size 1024 --disable_amp --channels_last
+  python scripts/profile_training.py --batch_size 512 --num_workers 20 --disable_amp
   
   # 优化 DataLoader 配置
-  python scripts/profile_training.py --batch_size 1024 --num_workers 8 --prefetch_factor 8
+  python scripts/profile_training.py --batch_size 512 --num_workers 20 --prefetch_factor 8
   
   # 完整诊断模式
-  python scripts/profile_training.py --batch_size 1024 --disable_amp --channels_last --record_shapes --profile_memory
+  python scripts/profile_training.py --batch_size 512 --num_workers 20 --disable_amp --record_shapes --profile_memory
 """
     )
     
     # 基础参数
-    parser.add_argument("--batch_size", type=int, default=64, help="Batch size (default: 64)")
-    parser.add_argument("--num_workers", type=int, default=6, help="DataLoader workers (default: 6)")
+    parser.add_argument("--batch_size", type=int, default=512, help="Batch size (default: 512)")
+    parser.add_argument("--num_workers", type=int, default=20, help="DataLoader workers (default: 20)")
     parser.add_argument("--num_batches", type=int, default=20, 
                         help="Number of batches to profile (active steps, default: 20)")
     parser.add_argument("--warmup_batches", type=int, default=5, 
@@ -408,11 +391,9 @@ def parse_args():
     parser.add_argument("--profile_memory", action="store_true", 
                         help="Profile memory usage (adds overhead)")
     
-    # 同步控制和内存格式
+    # 同步控制
     parser.add_argument("--disable_amp", action="store_true",
                         help="Disable AMP to avoid GradScaler implicit sync (recommended for diagnosing sync issues)")
-    parser.add_argument("--channels_last", action="store_true",
-                        help="Use channels_last (NHWC) memory format to avoid nchwToNhwcKernel conversion (recommended)")
     
     # DataLoader 优化参数
     parser.add_argument("--pin_memory", action="store_true", default=True,
@@ -443,7 +424,6 @@ if __name__ == "__main__":
         record_shapes=args.record_shapes,
         profile_memory=args.profile_memory,
         disable_amp=args.disable_amp,
-        channels_last=args.channels_last,
         pin_memory=args.pin_memory,
         persistent_workers=args.persistent_workers,
         prefetch_factor=args.prefetch_factor,
