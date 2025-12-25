@@ -308,7 +308,7 @@ def train_single_config(
         early_stopper = EarlyStopping(
             patience=early_stop_patience,  # Default 80 for Phase D
             mode="max",  # Monitor val_acc (higher is better)
-            min_epochs=80,  # At least 80 epochs before considering stop
+            min_epochs=60,  # At least 60 epochs before considering stop
             min_delta=0.2,
         )
         
@@ -716,8 +716,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--early_stop_patience",
         type=int,
-        default=80,
-        help="Early stopping patience (default: 80 for Phase D)"
+        default=60,
+        help="Early stopping patience (default: 60 for Phase D)"
     )
     
     parser.add_argument(

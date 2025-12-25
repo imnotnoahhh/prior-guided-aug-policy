@@ -55,14 +55,14 @@ tail -f logs/baseline.log
 ```bash
 python run_baseline.py \
     --epochs 200 \
-    --min_epochs 100 \
-    --early_stop_patience 30 \
+    --min_epochs 60 \
+    --early_stop_patience 60 \
     --batch_size 64 \
     --seed 42 \
     --num_workers 6
 ```
 
-> **v5.1 早停策略**: Baseline 使用 `min_epochs=100, patience=30, monitor=val_acc`。
+> **v5.1 早停策略**: Baseline 使用 `min_epochs=60, patience=60, monitor=val_acc`。
 
 ### 输出文件
 
@@ -140,12 +140,12 @@ python main_phase_a.py \
     --output_dir outputs \
     --seed 42 \
     --num_workers 6 \
-    --min_epochs 100 \
-    --early_stop_patience 30 \
+    --min_epochs 60 \
+    --early_stop_patience 60 \
     --ops RandomRotation,ColorJitter  # 可选，仅评估指定的 ops
 ```
 
-> **v5.1 早停策略**: Phase A 使用 `min_epochs=100, patience=30, monitor=val_acc`。
+> **v5.1 早停策略**: Phase A 使用 `min_epochs=60, patience=60, monitor=val_acc`。
 
 ### 输出文件
 

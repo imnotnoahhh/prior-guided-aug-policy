@@ -229,12 +229,12 @@ OP_SEARCH_SPACE = {
 
 | 阶段 | epochs | min_epochs | patience | min_delta | 说明 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Phase A** | 200 | 80 | 80 | 0.2 | 快速筛选，≥0.4×epochs |
+| **Phase A** | 200 | 60 | 60 | 0.2 | 快速筛选，≥0.3×epochs |
 | **Phase B (ASHA)** | 30/80/200 | N/A | N/A | N/A | ASHA 多轮淘汰，每轮保留 top 1/3 |
-| **Phase C** | 200 | 80 | 80 | 0.2 | 策略构建，与 A/B 一致 |
-| **Phase D** | 200 | 80 | 80 | 0.2 | 最终评估，与 A/B 一致 |
+| **Phase C** | 200 | 60 | 60 | 0.2 | 策略构建，与 A/B 一致 |
+| **Phase D** | 200 | 60 | 60 | 0.2 | 最终评估，与 A/B 一致 |
 
-> **Note**: min_epochs 和 patience 按 step 等价量调整，保证 batch size (128) 下 cosine 调度有足够时间生效。
+> **Note**: min_epochs=60 和 patience=60 针对 batch size=128 优化，小 batch 下每个 epoch step 数更多，模型更早收敛。
 
 ### 论文解释
 

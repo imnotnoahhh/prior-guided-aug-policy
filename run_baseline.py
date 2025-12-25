@@ -43,8 +43,8 @@ def run_baseline(
     fold_idx: int = 0,
     batch_size: int = 128,
     num_workers: int = 8,
-    early_stop_patience: int = 80,
-    min_epochs: int = 80,
+    early_stop_patience: int = 60,
+    min_epochs: int = 60,
     seed: int = 42,
     deterministic: bool = True,
 ):
@@ -316,8 +316,8 @@ def parse_args():
     parser.add_argument("--fold_idx", type=int, default=0, help="Fold index")
     parser.add_argument("--batch_size", type=int, default=128, help="Batch size")
     parser.add_argument("--num_workers", type=int, default=8, help="Data loader workers")
-    parser.add_argument("--early_stop_patience", type=int, default=80, help="Early stopping patience")
-    parser.add_argument("--min_epochs", type=int, default=80, help="Minimum epochs before early stopping")
+    parser.add_argument("--early_stop_patience", type=int, default=60, help="Early stopping patience")
+    parser.add_argument("--min_epochs", type=int, default=60, help="Minimum epochs before early stopping")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--no_deterministic", action="store_true", help="Disable deterministic mode")
     return parser.parse_args()
