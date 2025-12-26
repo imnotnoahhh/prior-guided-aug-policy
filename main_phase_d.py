@@ -228,6 +228,8 @@ def train_single_config(
     deterministic: bool = True,
     save_checkpoint: bool = False,
     checkpoint_dir: Optional[Path] = None,
+    weight_decay: float = 1e-2,
+    label_smoothing: float = 0.1,
 ) -> Dict:
     """Train one configuration and return metrics.
     
@@ -724,6 +726,8 @@ def run_phase_d(
                 deterministic=deterministic,
                 save_checkpoint=save_ckpt,
                 checkpoint_dir=checkpoint_dir,
+                weight_decay=weight_decay,
+                label_smoothing=label_smoothing,
             )
             
             # Write result
