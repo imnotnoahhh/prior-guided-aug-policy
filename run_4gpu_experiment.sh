@@ -1,10 +1,11 @@
 #!/bin/bash
 set -e
+set -o pipefail
 
 # ==============================================================================
 # Configuration
 # ==============================================================================
-PHASE_B_CSV="archive_newresults/outputs/outputs/phase_b_tuning_summary.csv"
+PHASE_B_CSV="outputs/phase_b_tuning_summary.csv"
 PHASE_C_ARGS="--phase_b_csv $PHASE_B_CSV --top_k 6 --n_ops 2 --epochs 200 --seeds 42,123,456"
 METHODS=("Baseline" "RandAugment" "Cutout" "Best_SingleOp" "Ours_optimal")
 FOLDS=(0 1 2 3 4)
