@@ -32,7 +32,8 @@ echo "--------------------------------------------------------"
 echo "STEP 2: Phase C (Dynamic Policy Construction) - GPU 0"
 echo "--------------------------------------------------------"
 # Phase C is fast (<30 mins) and produces the policy needed for Phase D.
-CUDA_VISIBLE_DEVICES=0 python main_phase_c.py $PHASE_C_ARGS > outputs/logs/phase_c.log 2>&1
+# Using tee to show progress in terminal while saving to log
+CUDA_VISIBLE_DEVICES=0 python main_phase_c.py $PHASE_C_ARGS 2>&1 | tee outputs/logs/phase_c.log
 echo "Phase C complete. Policy saved to outputs/phase_c_final_policy.json"
 
 # ==============================================================================
