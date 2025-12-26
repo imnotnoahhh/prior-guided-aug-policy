@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
 Run S0 Baseline with same settings as Phase A.
-Settings: epochs=200, batch_size=128, lr=0.1, wd=5e-3
+Settings: epochs=200, batch_size=128, lr=0.1, wd=1e-2
 
 Usage:
     python run_baseline.py
@@ -289,7 +289,7 @@ def run_baseline(
                 "epochs": epochs,
                 "batch_size": batch_size,
                 "lr": 0.1,
-                "weight_decay": 5e-3,
+                "weight_decay": 1e-2,
                 "momentum": 0.9,
             }
         }

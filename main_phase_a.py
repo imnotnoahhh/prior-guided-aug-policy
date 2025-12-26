@@ -632,6 +632,7 @@ def main() -> int:
                 "runtime_sec": 0.0,
                 "timestamp": datetime.now().isoformat(timespec='seconds'),
                 "error": error_msg,
+                "stable_score": -1.0,
             }
             error_count += 1
         
@@ -658,6 +659,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
 
 

@@ -313,7 +313,7 @@ class EarlyStopping:
         
     Recommended settings:
         - Phase A/B (200 epochs): min_epochs=100, patience=30, min_delta=0.2, mode="max"
-        - Phase C/D (800 epochs): Disable early stopping (patience=99999) or min_epochs=500, patience=100
+        - Phase C/D (200 epochs): Disable early stopping (patience=99999) or use min_epochs=60, patience=60
         
     Example:
         # For Phase A/B (monitor val_acc, mode="max")

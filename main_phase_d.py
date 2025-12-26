@@ -13,11 +13,11 @@ Methods compared:
 4. Ours_p1: Phase C policy with all probabilities set to 1.0 (ablation)
 5. Ours_optimal: Phase C final policy
 
-Each method runs on 5 folds × 800 epochs × 1 seed per fold.
+Each method runs on 5 folds × 200 epochs × 1 seed per fold.
 Final results are Mean ± Std across folds.
 
 Usage:
-    # Full run (800 epochs, 5 folds)
+    # Full run (200 epochs, 5 folds)
     python main_phase_d.py
     
     # Run specific methods only
@@ -553,10 +553,10 @@ def run_phase_d(
     phase_b_csv: Optional[Path] = None,  # v5.5: for Best_SingleOp
     methods: Optional[List[str]] = None,
     folds: Optional[List[int]] = None,
-    epochs: int = 800,
+    epochs: int = 200,
     seed: int = 42,
     num_workers: int = 8,
-    early_stop_patience: int = 99999,
+    early_stop_patience: int = 60,
     deterministic: bool = True,
     dry_run: bool = False,
 ) -> pd.DataFrame:
@@ -916,4 +916,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
