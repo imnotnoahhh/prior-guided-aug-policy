@@ -298,15 +298,15 @@ def train_single_config(
         if use_cuda:
             model = model.to(memory_format=torch.channels_last)
         
-    # Loss function (with label smoothing for regularization)
-    criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+        # Loss function (with label smoothing for regularization)
+        criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
         
         # Optimizer and scheduler
         optimizer, scheduler = get_optimizer_and_scheduler(
             model=model,
             total_epochs=epochs,
             lr=0.1,
-        weight_decay=weight_decay,
+            weight_decay=weight_decay,
             momentum=0.9,
             warmup_epochs=5,
         )
