@@ -516,6 +516,10 @@ def main() -> int:
     phase0_cfg = load_phase0_best_config()
     wd = phase0_cfg[0] if phase0_cfg else 1e-2
     ls = phase0_cfg[1] if phase0_cfg else 0.1
+    if phase0_cfg:
+        print(f"[Phase0] Using recommended hyperparams: wd={wd}, ls={ls}")
+    else:
+        print("[Phase0] phase0_summary.csv not found; fallback to defaults wd=1e-2, ls=0.1")
     
     print("=" * 70)
     print("Phase A: Augmentation Screening")
