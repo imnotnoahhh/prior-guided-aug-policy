@@ -48,8 +48,12 @@ def run_baseline(
     min_epochs: int = 60,
     seed: int = 42,
     deterministic: bool = True,
+    output_dir: str = "outputs",
 ):
     """Run S0 Baseline with same settings as Phase A."""
+    
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
     
     # Load Phase 0 recommended hyperparameters if available
     phase0_cfg = load_phase0_best_config()
@@ -76,7 +80,7 @@ def run_baseline(
     print(f"LR: 0.1, WD: {wd}, Momentum: 0.9, Warmup: 5 epochs, Label Smoothing: {ls}")
     print(f"Min epochs: {min_epochs}")
     print(f"Early stop patience: {early_stop_patience}")
-    print(f"Output dir: outputs")
+    print(f"Output dir: {output_dir}")
     print("=" * 70)
     
     # Build transforms - S0 Baseline only (RandomCrop + HorizontalFlip)
@@ -168,7 +172,7 @@ def run_baseline(
     best_model_state = None  # Store best model state for checkpoint
     
     # Prepare checkpoint directory
-    checkpoint_dir = Path("outputs/checkpoints")
+    checkpoint_dir = output_path / "checkpoints"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     
     print("\nTraining S0 Baseline...")
@@ -243,9 +247,7 @@ def run_baseline(
     print("=" * 70)
     
     # Save to CSV with unified format
-    output_dir = Path("outputs")
-    output_dir.mkdir(exist_ok=True)
-    csv_path = output_dir / "baseline_result.csv"
+    csv_path = output_path / "baseline_result.csv"
     
     # Unified CSV fieldnames (same for all phases)
     fieldnames = [
@@ -331,6 +333,7 @@ def parse_args():
     parser.add_argument("--min_epochs", type=int, default=60, help="Minimum epochs before early stopping")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--no_deterministic", action="store_true", help="Disable deterministic mode")
+    parser.add_argument("--output_dir", type=str, default="outputs", help="Output directory")
     return parser.parse_args()
 
 
@@ -345,4 +348,5 @@ if __name__ == "__main__":
         min_epochs=args.min_epochs,
         seed=args.seed,
         deterministic=not args.no_deterministic,
+        output_dir=args.output_dir,
     )

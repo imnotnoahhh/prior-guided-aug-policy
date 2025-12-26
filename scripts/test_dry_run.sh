@@ -49,6 +49,9 @@ python run_phase0_calibration.py \
     --dry_run
 
 if [ -f "${OUTPUT_DIR}/phase0_summary.csv" ]; then
+    # Copy to default location so subsequent phases can find it
+    mkdir -p outputs
+    cp "${OUTPUT_DIR}/phase0_summary.csv" "outputs/phase0_summary.csv"
     echo "✅ Phase 0 passed"
 else
     echo "❌ Phase 0 failed"
@@ -60,11 +63,10 @@ fi
 # -----------------------------------------------------------------------------
 echo ""
 echo "[2/6] Testing Baseline..."
-# Baseline writes to outputs/, copy to our dry run dir
-python run_baseline.py --epochs 2
+# Use --output_dir to write to dry run directory
+python run_baseline.py --epochs 2 --output_dir "${OUTPUT_DIR}"
 
-if [ -f "outputs/baseline_result.csv" ]; then
-    cp "outputs/baseline_result.csv" "${OUTPUT_DIR}/"
+if [ -f "${OUTPUT_DIR}/baseline_result.csv" ]; then
     echo "✅ Baseline passed"
 else
     echo "❌ Baseline failed"
