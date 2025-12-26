@@ -23,6 +23,13 @@ bash scripts/train_single_gpu.sh
 - 冒烟：`bash scripts/smoke_test_phase_a.sh` 等分阶段脚本（1-2 epoch）。
 - 完整：`phase_d_summary.csv` 应含 7 methods 的 Mean ± Std。
 
+## 后台运行示例
+如需断线续跑，可使用 nohup：
+```bash
+nohup bash scripts/train_single_gpu.sh > logs/full_run.log 2>&1 &
+tail -f logs/full_run.log
+```
+
 ## 绘图（训练结束后运行）
 读取上述 CSV/JSON，生成：
 - Phase A (m,p) 热力图：`python scripts/plot_phase_a_heatmap.py --csv outputs/phase_a_results.csv --out_dir outputs/figures`
