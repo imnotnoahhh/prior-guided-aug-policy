@@ -294,7 +294,7 @@ def train_single_config(
             model=model,
             total_epochs=epochs,
             lr=0.1,
-            weight_decay=5e-3,
+            weight_decay=1e-2,
             momentum=0.9,
             warmup_epochs=5,
         )

@@ -245,7 +245,7 @@ def train_single_config(
         model=model,
         total_epochs=epochs,
         lr=0.1,
-        weight_decay=5e-3,
+        weight_decay=1e-2,
         momentum=0.9,
         warmup_epochs=5,
     )
@@ -485,7 +485,7 @@ def main() -> int:
     print(f"Fold: {args.fold_idx}")
     print(f"Seed: {args.seed}")
     print(f"Deterministic: True")
-    print(f"LR: 0.1, WD: 5e-3, Momentum: 0.9, Warmup: 5 epochs, Label Smoothing: 0.1")
+    print(f"LR: 0.1, WD: 1e-2, Momentum: 0.9, Warmup: 5 epochs, Label Smoothing: 0.1")
     print(f"Early stopping: min_epochs={args.min_epochs}, patience={args.early_stop_patience}, monitor=val_acc")
     print(f"Output dir: {args.output_dir}")
     print("-" * 70)

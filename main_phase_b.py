@@ -2,15 +2,18 @@
 """
 Phase B: Augmentation Tuning Script with ASHA Scheduler.
 
+v5.4 CHANGED: Final rung uses multi-seed evaluation for stability.
 v5.3 CHANGED: ASHA (Asynchronous Successive Halving) replaces Grid Search.
 - Sobol sampling instead of grid search (more exploration, less bias)
 - Multi-fidelity early stopping: 30ep → 80ep → 200ep
-- Each rung keeps top 1/3, eliminates weak configs early
+- Each rung keeps top 1/2, eliminates weak configs early
+- Final rung (200ep) uses 3 seeds for stable ranking
 - ~10x faster than full grid search with same or better results
 
 Reference: docs/research_plan_v5.md Section 3 (Phase B)
 
 Changelog:
+- v5.4: Final rung multi-seed evaluation for stability
 - v5.3: ASHA scheduler with Sobol sampling
 - v5.2: channels_last, prefetch_factor=4
 - v5.1: Early stopping monitors val_acc
@@ -24,7 +27,7 @@ Usage:
     python main_phase_b.py --n_samples 5 --dry_run
     
     # Custom rungs
-    python main_phase_b.py --rungs 30,80,200 --reduction_factor 3
+    python main_phase_b.py --rungs 30,80,200 --reduction_factor 2
 """
 
 import argparse
@@ -283,7 +286,7 @@ def train_to_epoch(
         model=model,
         total_epochs=200,  # Fixed max epochs for consistent LR schedule
         lr=0.1,
-        weight_decay=5e-3,
+        weight_decay=1e-2,
         momentum=0.9,
         warmup_epochs=5,
     )
@@ -475,6 +478,7 @@ def run_phase_b_asha(
     deterministic: bool = True,
     ops_filter: Optional[List[str]] = None,
     dry_run: bool = False,
+    final_rung_seeds: List[int] = [42, 123, 456],
 ) -> Path:
     """Run Phase B with ASHA scheduler.
     
@@ -483,13 +487,14 @@ def run_phase_b_asha(
     2. Train all to first rung (e.g., 30 epochs)
     3. Keep top 1/reduction_factor, continue to next rung
     4. Repeat until final rung
+    5. Final rung uses multi-seed evaluation for stable ranking (v5.4)
     
     Args:
         phase_a_csv: Path to Phase A results CSV.
         baseline_csv: Path to baseline results CSV.
         output_dir: Output directory.
         rungs: List of epoch checkpoints [30, 80, 200].
-        reduction_factor: Keep 1/r configs each rung. Default 3.
+        reduction_factor: Keep 1/r configs each rung. Default 2.
         n_samples: Number of Sobol samples per op. Default 30.
         seed: Random seed for Sobol sampling.
         fold_idx: Which fold to use.
@@ -498,6 +503,7 @@ def run_phase_b_asha(
         deterministic: Enable deterministic mode.
         ops_filter: If provided, only tune these ops.
         dry_run: If True, run minimal configs.
+        final_rung_seeds: Seeds for final rung multi-seed evaluation. Default [42, 123, 456].
         
     Returns:
         Path to summary CSV.
@@ -543,6 +549,7 @@ def run_phase_b_asha(
     print(f"\nTotal initial configs: {len(all_configs)}")
     print(f"ASHA rungs: {rungs}")
     print(f"Reduction factor: 1/{reduction_factor}")
+    print(f"Final rung seeds: {final_rung_seeds}")
     
     # Estimate time savings
     full_epochs = len(all_configs) * rungs[-1]
@@ -553,6 +560,9 @@ def run_phase_b_asha(
         asha_epochs += remaining * (rung - prev_rung)
         remaining = max(1, remaining // reduction_factor)
         prev_rung = rung
+    # Add extra epochs for multi-seed final rung
+    final_rung_extra = remaining * rungs[-1] * (len(final_rung_seeds) - 1)
+    asha_epochs += final_rung_extra
     
     print(f"Estimated epoch-equivalents: {asha_epochs} (vs {full_epochs} full = {100*asha_epochs/full_epochs:.1f}%)")
     
@@ -572,9 +582,13 @@ def run_phase_b_asha(
     total_start = time.time()
     
     for rung_idx, target_epochs in enumerate(rungs):
+        is_final_rung = (rung_idx == len(rungs) - 1)
+        
         print(f"\n{'='*70}")
         print(f"RUNG {rung_idx + 1}/{len(rungs)}: Training to {target_epochs} epochs")
         print(f"Active configs: {len(active_configs)}")
+        if is_final_rung:
+            print(f"[FINAL RUNG] Using multi-seed evaluation: {final_rung_seeds}")
         print("="*70)
         
         rung_results = []
@@ -585,27 +599,50 @@ def run_phase_b_asha(
             unit="cfg"
         ):
             try:
-                result, new_checkpoint = train_to_epoch(
-                    op_name=op_name,
-                    magnitude=m,
-                    probability=p,
-                    target_epochs=target_epochs,
-                    device=device,
-                    checkpoint=checkpoint,
-                    fold_idx=fold_idx,
-                    batch_size=batch_size,
-                    num_workers=num_workers,
-                    seed=seed,
-                    deterministic=deterministic,
-                )
-                
-                # Store result
-                rung_results.append((key, result["val_acc"], new_checkpoint))
-                
-                # Write to CSV (only at final rung for cleaner output)
-                if rung_idx == len(rungs) - 1:
-                    write_raw_csv_row(raw_csv_path, result, write_header)
-                    write_header = False
+                if is_final_rung:
+                    # Final rung: multi-seed evaluation for stable ranking
+                    seed_results = []
+                    for eval_seed in final_rung_seeds:
+                        result, new_checkpoint = train_to_epoch(
+                            op_name=op_name,
+                            magnitude=m,
+                            probability=p,
+                            target_epochs=target_epochs,
+                            device=device,
+                            checkpoint=None,  # Fresh training for each seed
+                            fold_idx=fold_idx,
+                            batch_size=batch_size,
+                            num_workers=num_workers,
+                            seed=eval_seed,
+                            deterministic=deterministic,
+                        )
+                        seed_results.append(result)
+                        
+                        # Write each seed result to CSV
+                        write_raw_csv_row(raw_csv_path, result, write_header)
+                        write_header = False
+                    
+                    # Use mean val_acc for ranking
+                    mean_val_acc = np.mean([r["val_acc"] for r in seed_results])
+                    rung_results.append((key, mean_val_acc, None))
+                else:
+                    # Non-final rungs: single seed, continue from checkpoint
+                    result, new_checkpoint = train_to_epoch(
+                        op_name=op_name,
+                        magnitude=m,
+                        probability=p,
+                        target_epochs=target_epochs,
+                        device=device,
+                        checkpoint=checkpoint,
+                        fold_idx=fold_idx,
+                        batch_size=batch_size,
+                        num_workers=num_workers,
+                        seed=seed,
+                        deterministic=deterministic,
+                    )
+                    
+                    # Store result
+                    rung_results.append((key, result["val_acc"], new_checkpoint))
                     
             except Exception as e:
                 print(f"\nERROR in {op_name} (m={m}, p={p}): {e}")
@@ -732,6 +769,11 @@ Examples:
         help="Run minimal configs for testing"
     )
     
+    parser.add_argument(
+        "--final_rung_seeds", type=str, default="42,123,456",
+        help="Comma-separated seeds for final rung multi-seed evaluation (default: 42,123,456)"
+    )
+    
     return parser.parse_args()
 
 
@@ -750,17 +792,21 @@ def main() -> int:
     if args.ops:
         ops_filter = [op.strip() for op in args.ops.split(",")]
     
+    # Parse final rung seeds
+    final_rung_seeds = [int(s.strip()) for s in args.final_rung_seeds.split(",")]
+    
     deterministic = not args.no_deterministic
     device = get_device()
     
     print("=" * 70)
-    print("Phase B: ASHA Augmentation Tuning (v5.3)")
+    print("Phase B: ASHA Augmentation Tuning (v5.4)")
     print("=" * 70)
     print(f"Device: {device}")
     print(f"ASHA Rungs: {rungs}")
     print(f"Reduction factor: 1/{args.reduction_factor}")
     print(f"Sobol samples per op: {args.n_samples}")
     print(f"Seed: {args.seed}")
+    print(f"Final rung seeds: {final_rung_seeds}")
     print(f"Batch size: 128")
     print(f"Fold: {args.fold_idx}")
     print(f"Deterministic: {deterministic}")
@@ -787,6 +833,7 @@ def main() -> int:
             deterministic=deterministic,
             ops_filter=ops_filter,
             dry_run=args.dry_run,
+            final_rung_seeds=final_rung_seeds,
         )
         return 0
         

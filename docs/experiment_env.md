@@ -162,8 +162,9 @@ python main_phase_a.py \
 
 ---
 
-## 4. Phase B ASHA 深度微调 (v5.3)
+## 4. Phase B ASHA 深度微调 (v5.4)
 
+> **v5.4 更新**: 最终 Rung 使用多 seed (3 seeds) 评估，提高排名稳定性！
 > **v5.3 更新**: Grid Search → ASHA 早停淘汰赛，速度提升 ~10 倍！
 
 ### 4.1 单 GPU 运行
@@ -266,12 +267,14 @@ python main_phase_b.py \
 
 ---
 
-## 5. Phase C 先验贪心组合
+## 5. Phase C 先验贪心组合 (v5.4 Multi-Start)
 
+> **v5.4 更新**: Multi-Start 搜索！同时从 Phase A 和 Phase B 的 top 配置出发，选择最优路径。
 > **GPU 说明**: Phase C 使用贪心算法逐步添加增强操作，每次候选需要训练 3 seeds × 200 epochs（与 A/B 一致）。
 
 ### 5.1 前置条件
 
+- Phase A 完成，`outputs/phase_a_results.csv` 存在（用于多起点搜索）
 - Phase B 完成，`outputs/phase_b_tuning_summary.csv` 存在
 - Baseline 结果存在（`outputs/baseline_result.csv`，与 Phase A/B 共用）
 

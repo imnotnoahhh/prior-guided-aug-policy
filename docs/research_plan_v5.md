@@ -201,7 +201,7 @@ OP_SEARCH_SPACE = {
 | **Model** | ResNet-18 | 标准 Backbones |
 | **Optimizer** | SGD | |
 | **Learning Rate** | 0.1 | 标准学习率 |
-| **Weight Decay** | 5e-3 | 增强正则化 |
+| **Weight Decay** | 1e-2 | 增强正则化 (v5.4: 从 5e-3 增加到 1e-2) |
 | **Label Smoothing** | 0.1 | 标签平滑正则化 |
 | **Momentum** | 0.9 | |
 | **Scheduler** | CosineAnnealingLR | T_max = Total Epochs - Warmup |
