@@ -466,7 +466,7 @@ def run_phase_b_asha(
     baseline_csv: Path,
     output_dir: Path,
     rungs: List[int] = [30, 80, 200],
-    reduction_factor: int = 3,
+    reduction_factor: int = 2,
     n_samples: int = 30,
     seed: int = 42,
     fold_idx: int = 0,
@@ -696,8 +696,8 @@ Examples:
         help="Comma-separated epoch checkpoints (default: 30,80,200)"
     )
     parser.add_argument(
-        "--reduction_factor", type=int, default=3,
-        help="Keep 1/r configs each rung (default: 3)"
+        "--reduction_factor", type=int, default=2,
+        help="Keep 1/r configs each rung (default: 2)"
     )
     parser.add_argument(
         "--n_samples", type=int, default=30,

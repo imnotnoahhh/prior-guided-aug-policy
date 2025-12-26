@@ -228,7 +228,7 @@ print(summary.head(15).to_string(index=False))
 python main_phase_b.py \
     --rungs 30,80,200 \           # 检查点 epochs (每轮淘汰)
     --n_samples 30 \              # 每个 op 的 Sobol 采样数
-    --reduction_factor 3 \        # 每轮保留 top 1/3
+    --reduction_factor 2 \        # 每轮保留 top 1/2
     --seed 42 \                   # Sobol 采样种子
     --output_dir outputs \
     --phase_a_csv outputs/phase_a_results.csv \
@@ -302,8 +302,8 @@ python main_phase_c.py \
     --phase_b_csv outputs/phase_b_tuning_summary.csv \
     --baseline_acc 37.0  # 可选，手动指定 Baseline 准确率 \
     --max_ops 3 \
-    --improvement_threshold 0.3 \
-    --num_workers 6
+    --improvement_threshold 0.1 \
+    --num_workers 8
 ```
 
 > **v5.4 变更**: Phase C 统一使用 200 epochs，与 Phase A/B 保持一致的训练预算，确保公平对比。

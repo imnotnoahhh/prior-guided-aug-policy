@@ -116,17 +116,17 @@ OP_SEARCH_SPACE = {
 * **v5.3 改进**: Grid Search → **ASHA 早停淘汰赛**
     * 更多采样点（Sobol 30 点/op），更少浪费
     * 多保真早停：30ep → 80ep → 200ep
-    * 每轮保留 top 1/3，淘汰弱配置
+    * 每轮保留 top 1/2，淘汰弱配置
 
 * **配置**:
     * **Input**: 阶段 A 晋级的 Ops。
     * **Sampling**: **Sobol Sequence** (30 个 $(m, p)$ 点/Op)
     * **ASHA Rungs**: [30, 80, 200] epochs
-    * **Reduction Factor**: 1/3 (每轮保留最好的 1/3)
+    * **Reduction Factor**: 1/2 (每轮保留最好的 1/2)
 * **实验量**: ~8 ops × 30 samples = 240 初始配置
     * Rung 1 (30ep): 240 配置
-    * Rung 2 (80ep): ~80 配置 (top 1/3)
-    * Rung 3 (200ep): ~27 配置 (top 1/9)
+    * Rung 2 (80ep): ~120 配置 (top 1/2)
+    * Rung 3 (200ep): ~60 配置 (top 1/4)
 * **预计时间**: ~2-4h (4 GPU 并行) — **比 Grid Search 快 ~10 倍**
 * **输出**: 按 `val_acc` 排序的 $(Op, m^*, p^*)$ 列表。
 
@@ -230,7 +230,7 @@ OP_SEARCH_SPACE = {
 | 阶段 | epochs | min_epochs | patience | min_delta | 说明 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Phase A** | 200 | 60 | 60 | 0.2 | 快速筛选，≥0.3×epochs |
-| **Phase B (ASHA)** | 30/80/200 | N/A | N/A | N/A | ASHA 多轮淘汰，每轮保留 top 1/3 |
+| **Phase B (ASHA)** | 30/80/200 | N/A | N/A | N/A | ASHA 多轮淘汰，每轮保留 top 1/2 |
 | **Phase C** | 200 | 60 | 60 | 0.2 | 策略构建，与 A/B 一致 |
 | **Phase D** | 200 | 60 | 60 | 0.2 | 最终评估，与 A/B 一致 |
 

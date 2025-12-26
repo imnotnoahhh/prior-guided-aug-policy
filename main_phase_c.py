@@ -803,8 +803,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--improvement_threshold",
         type=float,
-        default=0.3,
-        help="Minimum improvement threshold in %% (default: 0.3)"
+        default=0.1,
+        help="Minimum improvement threshold in %% (default: 0.1)"
     )
     
     parser.add_argument(

@@ -106,7 +106,7 @@ echo "输出目录: ${OUTPUT_DIR}"
 echo ""
 echo "早停策略 (v5.4 - 统一 200ep):"
 echo "  Phase A: min_epochs=60, patience=60"
-echo "  Phase B: ASHA 多轮淘汰 (rungs=30,80,200, keep top 1/3)"
+echo "  Phase B: ASHA 多轮淘汰 (rungs=30,80,200, keep top 1/2)"
 echo "  Phase C: min_epochs=60, patience=60 (与 A/B 一致)"
 echo "  Phase D: min_epochs=60, patience=60 (与 A/B 一致)"
 
