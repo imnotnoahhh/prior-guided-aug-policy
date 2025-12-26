@@ -8,7 +8,7 @@ data/
 
 # Experiment outputs - results are machine/run specific
 outputs/
-
+outputs_dryrun/
 # Model checkpoints
 checkpoints/
 *.pt

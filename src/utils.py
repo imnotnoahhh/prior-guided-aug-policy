@@ -413,7 +413,7 @@ def get_optimizer_and_scheduler(
         model: The model to optimize.
         total_epochs: Total number of training epochs.
         lr: Learning rate. Default 0.1.
-        weight_decay: Weight decay. Default 1e-2 (
+        weight_decay: Weight decay. Default 1e-2.
         momentum: SGD momentum. Default 0.9.
         warmup_epochs: Number of warmup epochs. Default 5.
             Linear warmup from lr/warmup_epochs to lr.

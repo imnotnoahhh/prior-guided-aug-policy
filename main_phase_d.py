@@ -306,6 +306,7 @@ def train_single_config(
         "runtime_sec": 0.0,
         "timestamp": "",
         "error": "",
+        "stable_score": -1.0,
     }
     
     try:
@@ -376,7 +377,7 @@ def train_single_config(
         if device.type == "cuda":
             scaler = torch.amp.GradScaler()
         
-        # Early stopping (
+        # Early stopping
         early_stopper = EarlyStopping(
             patience=early_stop_patience,  # Default 80 for Phase D
             mode="max",  # Monitor val_acc (higher is better)
@@ -489,7 +490,7 @@ def write_csv_row(path: Path, row: Dict, write_header: bool) -> None:
         "phase", "op_name", "magnitude", "probability", "seed", "fold_idx",
         "val_acc", "val_loss", "top5_acc", "train_acc", "train_loss",
         "epochs_run", "best_epoch", "early_stopped", "runtime_sec",
-        "timestamp", "error"
+        "timestamp", "error", "stable_score"
     ]
     
     path.parent.mkdir(parents=True, exist_ok=True)

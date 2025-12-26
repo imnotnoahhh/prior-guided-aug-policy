@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Phase 0: Hyperparameter Calibration (
+Phase 0: Hyperparameter Calibration
 
 Purpose: Find optimal (weight_decay, label_smoothing) combination before main experiments.
 This ensures the "fixed hyperparameters" are data-driven and defensible in paper.
@@ -185,23 +185,31 @@ def train_single_config(
         weight_decay=weight_decay,
     )
     
-    warmup_epochs = 5
-    warmup_scheduler = LinearLR(
-        optimizer,
-        start_factor=1.0 / warmup_epochs,
-        end_factor=1.0,
-        total_iters=warmup_epochs,
-    )
-    cosine_scheduler = CosineAnnealingLR(
-        optimizer,
-        T_max=epochs - warmup_epochs,
-        eta_min=1e-6,
-    )
-    scheduler = SequentialLR(
-        optimizer,
-        schedulers=[warmup_scheduler, cosine_scheduler],
-        milestones=[warmup_epochs],
-    )
+    warmup_epochs = min(5, epochs // 2)  # Adjust warmup for short runs
+    if warmup_epochs > 0 and epochs > warmup_epochs:
+        warmup_scheduler = LinearLR(
+            optimizer,
+            start_factor=1.0 / max(warmup_epochs, 1),
+            end_factor=1.0,
+            total_iters=warmup_epochs,
+        )
+        cosine_scheduler = CosineAnnealingLR(
+            optimizer,
+            T_max=max(epochs - warmup_epochs, 1),
+            eta_min=1e-6,
+        )
+        scheduler = SequentialLR(
+            optimizer,
+            schedulers=[warmup_scheduler, cosine_scheduler],
+            milestones=[warmup_epochs],
+        )
+    else:
+        # For very short runs, use only cosine annealing
+        scheduler = CosineAnnealingLR(
+            optimizer,
+            T_max=max(epochs, 1),
+            eta_min=1e-6,
+        )
     
     # Loss function
     criterion = torch.nn.CrossEntropyLoss(label_smoothing=label_smoothing)
@@ -273,10 +281,17 @@ def run_calibration(args):
     weight_decays = [float(wd) for wd in args.weight_decays.split(",")]
     label_smoothings = [float(ls) for ls in args.label_smoothings.split(",")]
     
-    epochs = args.epochs if not args.dry_run else 5
+    # In dry_run mode, use minimal grid
+    if args.dry_run:
+        epochs = 2
+        weight_decays = [1e-2]  # Only test one value
+        label_smoothings = [0.1]  # Only test one value
+        seeds = seeds[:1]  # Only one seed
+    else:
+        epochs = args.epochs
     
     print("=" * 70)
-    print("Phase 0: Hyperparameter Calibration (
+    print("Phase 0: Hyperparameter Calibration")
     print("=" * 70)
     print(f"Device: {device}")
     print(f"Epochs: {epochs}")

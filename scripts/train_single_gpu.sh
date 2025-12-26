@@ -121,10 +121,10 @@ echo "Baseline 耗时: $(( (END_TIME - START_TIME) / 60 )) 分钟"
 check_success "${OUTPUT_DIR}/baseline_result.csv" "Baseline"
 
 # -----------------------------------------------------------------------------
-# Phase A (v5.5: 40ep 低保真筛选)
+# Phase A: 40ep 低保真筛选
 # -----------------------------------------------------------------------------
 print_header "[2/5] Phase A 筛选"
-echo "配置: 8 ops × 32 samples × 40 epochs (v5.5 低保真)"
+echo "配置: 8 ops × 32 samples × 40 epochs"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${GPU_ID} python main_phase_a.py \
@@ -136,10 +136,10 @@ echo "Phase A 耗时: $(( (END_TIME - START_TIME) / 60 )) 分钟"
 check_success "${OUTPUT_DIR}/phase_a_results.csv" "Phase A"
 
 # -----------------------------------------------------------------------------
-# Phase B (v5.5: rungs [40,100,200])
+# Phase B: ASHA 微调
 # -----------------------------------------------------------------------------
 print_header "[3/5] Phase B ASHA 微调"
-echo "配置: ASHA 早停淘汰赛, rungs=[40,100,200], Sobol 30 samples/op (v5.5)"
+echo "配置: ASHA 早停淘汰赛, rungs=[40,100,200], Sobol 30 samples/op"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${GPU_ID} python main_phase_b.py \

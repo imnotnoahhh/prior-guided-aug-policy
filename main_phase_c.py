@@ -70,7 +70,7 @@ from src.utils import (
 
 
 # =============================================================================
-# Phase A Results Loading (
+# Phase A Results Loading
 # =============================================================================
 
 def load_phase_a_best_per_op(csv_path: Path) -> Dict[str, Tuple[float, float, float]]:
@@ -221,6 +221,7 @@ def train_dynamic_policy(
         "runtime_sec": 0.0,
         "timestamp": "",
         "error": "",
+        "stable_score": -1.0,
     }
     
     try:
@@ -436,7 +437,7 @@ def write_csv_row(path: Path, row: Dict, write_header: bool) -> None:
         "phase", "op_name", "magnitude", "probability", "seed", "fold_idx",
         "val_acc", "val_loss", "top5_acc", "train_acc", "train_loss",
         "epochs_run", "best_epoch", "early_stopped", "runtime_sec",
-        "timestamp", "error"
+        "timestamp", "error", "stable_score"
     ]
     
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -580,6 +581,7 @@ def train_static_policy(
         "runtime_sec": 0.0,
         "timestamp": "",
         "error": "",
+        "stable_score": -1.0,
     }
     
     try:

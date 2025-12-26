@@ -252,7 +252,7 @@ def run_baseline(
         "phase", "op_name", "magnitude", "probability", "seed", "fold_idx",
         "val_acc", "val_loss", "top5_acc", "train_acc", "train_loss",
         "epochs_run", "best_epoch", "early_stopped", "runtime_sec",
-        "timestamp", "error"
+        "timestamp", "error", "stable_score"
     ]
     
     row = {
@@ -273,6 +273,7 @@ def run_baseline(
         "runtime_sec": round(runtime_sec, 2),
         "timestamp": timestamp,
         "error": "",
+        "stable_score": -1.0,
     }
     
     with open(csv_path, "w", newline="") as f:

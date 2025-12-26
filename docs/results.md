@@ -2,7 +2,7 @@
 
 - 数据集：CIFAR-100 5-Fold，子采样 20%/类。
 - 训练配置：epochs=200，batch_size=128，lr=0.1，wd=1e-2，momentum=0.9，warmup=5，label smoothing=0.1，seeds=42/123/456（Phase B/C），folds=0-4（Phase D）。
-- 硬件/驱动：CUDA 12.8，Driver 570.133.20，cuDNN 9.8.0.87。
+- 硬件/驱动：CUDA 12.8，Driver 570.195.03，cuDNN 9.8.0.87。
 
 ## Phase D 主表（Mean ± Std）
 来源：`outputs/phase_d_summary.csv`

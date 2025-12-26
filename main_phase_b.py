@@ -2,24 +2,13 @@
 """
 Phase B: Augmentation Tuning Script with ASHA Scheduler.
 
-
-
-
 - Sobol sampling instead of grid search (more exploration, less bias)
-- Multi-fidelity early stopping: 40ep → 100ep → 200ep (
+- Multi-fidelity early stopping: 40ep -> 100ep -> 200ep
 - Each rung keeps top 1/2, eliminates weak configs early
 - Final rung (200ep) uses 3 seeds for stable ranking
 - ~10x faster than full grid search with same or better results
 
 Reference: docs/research_plan.md Section 3 (Phase B)
-
-Changelog:
-- 
-- 
-- 
-- 
-- 
-- 
 
 Usage:
     # Full ASHA run (~2-4 hours instead of ~28 hours)
@@ -138,7 +127,7 @@ def get_promoted_ops(
 
 
 # =============================================================================
-# Sobol Sampling for (m, p) Space (
+# Sobol Sampling for (m, p) Space
 # =============================================================================
 
 def sobol_sample_configs(
@@ -182,7 +171,7 @@ def sobol_sample_configs(
 
 
 # =============================================================================
-# ASHA Training with Checkpoint Support (
+# ASHA Training with Checkpoint Support
 # =============================================================================
 
 def train_to_epoch(
@@ -363,6 +352,7 @@ def train_to_epoch(
         "runtime_sec": round(time.time() - start_time, 2),
         "timestamp": datetime.now().isoformat(timespec='seconds'),
         "error": "",
+        "stable_score": -1.0,
     }
     
     # Build checkpoint for continuation
@@ -394,7 +384,7 @@ def write_raw_csv_row(path: Path, row: Dict, write_header: bool) -> None:
         "phase", "op_name", "magnitude", "probability", "seed", "fold_idx",
         "val_acc", "val_loss", "top5_acc", "train_acc", "train_loss",
         "epochs_run", "best_epoch", "early_stopped", "runtime_sec",
-        "timestamp", "error"
+        "timestamp", "error", "stable_score"
     ]
     
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -466,7 +456,7 @@ def aggregate_results(raw_csv_path: Path, summary_csv_path: Path) -> pd.DataFram
 
 
 # =============================================================================
-# ASHA Scheduler (
+# ASHA Scheduler
 # =============================================================================
 
 def run_phase_b_asha(
@@ -494,7 +484,7 @@ def run_phase_b_asha(
     2. Train all to first rung (e.g., 30 epochs)
     3. Keep top 1/reduction_factor, continue to next rung
     4. Repeat until final rung
-    5. Final rung uses multi-seed evaluation for stable ranking (
+    5. Final rung uses multi-seed evaluation for stable ranking
     
     Args:
         phase_a_csv: Path to Phase A results CSV.
@@ -549,9 +539,10 @@ def run_phase_b_asha(
         print(f"  {op_name}: {len(configs)} Sobol samples")
     
     if dry_run:
-        all_configs = all_configs[:min(len(all_configs), 5)]
-        rungs = [5, 10]  # Quick test
-        print(f"DRY RUN: Limited to {len(all_configs)} configs, rungs={rungs}")
+        all_configs = all_configs[:min(len(all_configs), 2)]  # Only 2 configs
+        rungs = [2, 4]  # Very quick test
+        final_rung_seeds = [42]  # Only 1 seed
+        print(f"DRY RUN: Limited to {len(all_configs)} configs, rungs={rungs}, seeds={final_rung_seeds}")
     
     print(f"\nTotal initial configs: {len(all_configs)}")
     print(f"ASHA rungs: {rungs}")
@@ -819,7 +810,7 @@ def main() -> int:
         print("[Phase0] phase0_summary.csv not found; fallback to defaults wd=1e-2, ls=0.1")
     
     print("=" * 70)
-    print("Phase B: ASHA Augmentation Tuning (
+    print("Phase B: ASHA Augmentation Tuning")
     print("=" * 70)
     print(f"Device: {device}")
     print(f"ASHA Rungs: {rungs}")

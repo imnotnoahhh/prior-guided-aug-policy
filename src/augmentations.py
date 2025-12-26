@@ -7,24 +7,9 @@ Implements:
 - Candidate Pool: 8 operations with magnitude [0,1] to physical parameter mapping
 - Probabilistic application: each operation can be applied with probability p
 - Mutual exclusion handling for conflicting operations
-- Combination probability adjustment for multi-op policies (
+- Combination probability adjustment for multi-op policies
 
 Reference: docs/research_plan.md Section 2
-
-Changelog (v4 → v5):
-- [NEW] ProbabilisticTransform: wrapper for stochastic application
-- [NEW] OP_SEARCH_SPACE: per-operation (m, p) search ranges
-- [CHANGED] build_transform_with_op: now accepts probability parameter
-
-Changelog (:
-- [NEW] OP_DESTRUCTIVENESS: per-operation destructiveness weights
-- [NEW] adjust_probabilities_for_combination: control total augmentation intensity
-- [CHANGED] RandomErasing p range expanded to [0.1, 0.5]
-
-Changelog (:
-- [CHANGED] OP_SEARCH_SPACE: more conservative ranges to avoid "必炸区"
-- [CHANGED] adjust_probabilities_for_combination: now considers magnitude (w = 1 - d * g(m))
-- [NEW] magnitude_influence function for weighted probability adjustment
 """
 
 from typing import Callable, Dict, List, Optional, Tuple, Union
@@ -37,7 +22,7 @@ from PIL import Image
 
 
 # =============================================================================
-# 
+# Per-Operation Search Space Configuration
 # =============================================================================
 
 # Per-operation search space configuration
@@ -205,7 +190,7 @@ def adjust_probabilities_for_combination(
 
 
 # =============================================================================
-# 
+# ProbabilisticTransform
 # =============================================================================
 
 class ProbabilisticTransform(nn.Module):
@@ -651,7 +636,6 @@ def create_op_transform(op_name: str, magnitude: float) -> Callable:
         )
     
     elif op_name == "RandomGrayscale":
-        # 
         # The application probability is controlled by ProbabilisticTransform wrapper
         # magnitude has no effect on this op (grayscale is binary: full or none)
         return transforms.RandomGrayscale(p=1.0)
