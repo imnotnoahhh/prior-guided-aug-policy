@@ -39,7 +39,7 @@ from src.augmentations import get_baseline_transform, get_val_transform
 from src.dataset import CIFAR100Subsampled
 from src.models import create_model
 from src.utils import (
-    set_seed,
+    set_seed_deterministic,
     get_device,
     train_one_epoch,
     evaluate,
@@ -127,7 +127,7 @@ def train_single_config(
 ) -> dict:
     """Train a single configuration and return results."""
     
-    set_seed(seed, deterministic=True)
+    set_seed_deterministic(seed, deterministic=True)
     
     # Create model
     model = create_model(num_classes=100)
@@ -383,4 +383,3 @@ def run_calibration(args):
 if __name__ == "__main__":
     args = parse_args()
     run_calibration(args)
-
