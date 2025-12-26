@@ -5,7 +5,7 @@
 ## 统一字段定义
 
 ```
-phase, op_name, magnitude, probability, seed, fold_idx, val_acc, val_loss, top5_acc, train_acc, train_loss, epochs_run, best_epoch, early_stopped, runtime_sec, timestamp, error
+phase, op_name, magnitude, probability, seed, fold_idx, val_acc, val_loss, top5_acc, train_acc, train_loss, epochs_run, best_epoch, early_stopped, runtime_sec, timestamp, error, stable_score
 ```
 
 ## 字段说明
@@ -29,6 +29,7 @@ phase, op_name, magnitude, probability, seed, fold_idx, val_acc, val_loss, top5_
 | `runtime_sec` | float | 运行时间（秒） | 3600.5 |
 | `timestamp` | str | ISO 8601 时间戳 | 2024-12-22T10:30:00 |
 | `error` | str | 错误信息（无错误为空） | OOM, ValueError |
+| `stable_score` | float | Phase A 稳定性评分（其余阶段填 -1） | 45.3 |
 
 ## 各阶段字段使用
 
@@ -36,10 +37,11 @@ phase, op_name, magnitude, probability, seed, fold_idx, val_acc, val_loss, top5_
 |------|----------|---------|---------|---------|---------|
 | phase | "Baseline" | "PhaseA" | "PhaseB" | "PhaseC" | "PhaseD" |
 | op_name | "Baseline" | 单个 op | 单个 op | 单个或组合 "op1+op2" | 方法名* |
-| magnitude | "0.0" | Sobol采样值 | Grid采样值 | 单个或组合 "m1+m2" | 见下表 |
-| probability | "1.0" | Sobol采样值 | Grid采样值 | 单个或组合 "p1+p2" | 见下表 |
+| magnitude | "0.0" | Sobol采样值 | Sobol采样值 | 单个或组合 "m1+m2" | 见下表 |
+| probability | "1.0" | Sobol采样值 | Sobol采样值 | 单个或组合 "p1+p2" | 见下表 |
 | seed | 42 | 42 | 42/123/456 | 42/123/456 | 42 |
 | fold_idx | 0 | 0 | 0 | 0 | 0,1,2,3,4 |
+| stable_score | - | `mean(top3(val_acc[-10:]))` | - | - | - |
 
 ### Phase D 方法名与参数
 
@@ -55,14 +57,14 @@ phase, op_name, magnitude, probability, seed, fold_idx, val_acc, val_loss, top5_
 
 参见 `docs/csv_format_example.csv`
 
-## 早停策略 (v5.4 - 统一 200ep)
+## 早停/轮次设置 (v5.5)
 
-| 阶段 | epochs | 早停策略 | 预期 epochs_run | 预期 early_stopped |
-|------|--------|----------|-----------------|-------------------|
-| Phase A | 200 | min_epochs=60, patience=60 | 120-200 | True/False |
-| Phase B (v5.3) | 30/80/200 | ASHA 多轮淘汰 | 30/80/200 | **N/A** |
-| Phase C | 200 | min_epochs=60, patience=60 | 120-200 | True/False |
-| Phase D | 200 | min_epochs=60, patience=60 | 120-200 | True/False |
+| 阶段 | epochs | 策略 | 预期 epochs_run | 备注 |
+|------|--------|------|-----------------|------|
+| Phase A | 40 | min_epochs=20, patience=15, monitor=val_acc | 20-40 | 低保真筛选 |
+| Phase B | 40 → 100 → 200 | ASHA 多轮淘汰 | 依赖淘汰结果 | 最终 rung 多 seed |
+| Phase C | 200 | min_epochs=60, patience=60, monitor=val_acc | 120-200 | 贪心组合 |
+| Phase D | 200 | min_epochs=60, patience=60, monitor=val_acc | 120-200 | 5 folds |
 
 ## 论文写作用途
 

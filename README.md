@@ -1,73 +1,49 @@
-# prior-guided-aug-policy
-Official PyTorch implementation of "Prior-Guided Augmentation Policy Search in Low-Data Regimes". A data-efficient pipeline for finding robust augmentation policies on CIFAR-100.
+# Prior-Guided Augmentation Policy Search
 
-## Quick Start
+官方 PyTorch 代码：在 CIFAR-100 低数据场景（每类约 100 张）下，利用先验约束的 (magnitude, probability) 联合搜索和多阶段管线找到最优增强策略。
 
-### Environment Setup
+## 环境
 
 ```bash
-# Create conda environment
 conda env create -f environment.yml
-
-# Activate environment
 conda activate pga
 ```
 
-### Running Smoke Tests
+## 快速验证（冒烟）
 
-One-click full system validation:
+针对各阶段的轻量检查：
 
-```bash
-bash scripts/smoke_test.sh
-```
+- Phase A：`bash scripts/smoke_test_phase_a.sh`
+- Phase B：`bash scripts/smoke_test_phase_b.sh`
+- Phase C：`bash scripts/smoke_test_phase_c.sh`
+- Phase D：`bash scripts/smoke_test_phase_d.sh`
 
-**Expected output on success:**
+验证只跑 1～2 个 epoch，确保依赖、数据下载、日志写入路径都正常。
 
-```
-[Step 1/7] Dependency import check...
-IMPORT_OK
-[Step 2/7] Module import check...
-SMOKE_OK
-...
-[Step 7/7] Validating artifacts...
-CSV exists: outputs/phase_a_smoke_YYYYMMDD_HHMMSS.csv
-Data rows: 2
-
-========================================
-ALL TESTS PASSED
-========================================
-```
-
-**If conda activation fails:**
-
-1. Ensure conda is installed and initialized: `conda init bash`
-2. Verify the `pga` environment exists: `conda env list`
-3. If missing, create it: `conda env create -f environment.yml`
-
-### Running Phase A (Full Search)
+## 全流程（单 GPU）
 
 ```bash
-# Full search: 200 epochs, 32 Sobol samples per operation
-python main_phase_a.py
-
-# Dry run for testing
-python main_phase_a.py --epochs 1 --n_samples 2
+bash scripts/train_single_gpu.sh
 ```
 
-## Project Structure
+顺序运行 Baseline → Phase A → Phase B → Phase C → Phase D，所有结果保存在 `outputs/`，日志在 `logs/`。
+
+## 关键脚本
+
+- `run_baseline.py`：S0 基线，权重衰减 1e-2，与后续阶段一致。
+- `main_phase_a.py`：40ep 低保真筛选，2D Sobol 采样 (m, p)。
+- `main_phase_b.py`：ASHA 多轮淘汰，rungs = [40, 100, 200]。
+- `main_phase_c.py`：多起点贪心组合，自动调整多操作概率。
+- `main_phase_d.py`：5-Fold 对比实验，默认 200 epochs。
+
+## 结构
 
 ```
-├── src/
-│   ├── dataset.py        # CIFAR-100 with 5-Fold stratified split
-│   ├── augmentations.py  # Augmentation operations pool
-│   ├── models.py         # ResNet-18 (fixed architecture)
-│   └── utils.py          # Training utilities
-├── scripts/
-│   └── smoke_test.sh     # One-click validation script
-├── main_phase_a.py       # Phase A screening script
-├── outputs/              # Results directory
-└── docs/
-    └── research_plan_v4.md
+├── src/                # 数据、模型、增强、训练工具
+├── scripts/            # 冒烟与全流程脚本
+├── main_phase_*.py     # 各阶段入口
+├── docs/               # 设计与格式文档
+└── outputs/            # 运行产物（自动创建）
 ```
 
 ## License
