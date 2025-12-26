@@ -1,2 +1,0 @@
-phase,op_name,magnitude,probability,seed,fold_idx,val_acc,val_loss,top5_acc,train_acc,train_loss,epochs_run,best_epoch,early_stopped,runtime_sec,timestamp,error
-Baseline,Baseline,0.0,1.0,42,0,39.0,2.971303,66.5,99.7,0.899665,200,200,False,122.15,2025-12-25T20:48:01,

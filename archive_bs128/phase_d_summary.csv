@@ -1,6 +1,0 @@
-method,mean_val_acc,std_val_acc,mean_top5_acc,std_top5_acc,n_folds
-RandAugment,42.5,0.9772,69.8,1.546,5
-Baseline,40.0,1.3546,64.54,1.8338,5
-Ours_optimal,39.54,0.658,65.34,0.9044,5
-Ours_p1,37.98,0.8871,64.24,0.862,5
-Cutout,36.92,0.8289,64.22,0.8408,5

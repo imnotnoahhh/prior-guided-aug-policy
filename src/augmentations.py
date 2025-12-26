@@ -50,22 +50,24 @@ from PIL import Image
 #       We set m to a fixed value [0.5, 0.5] to avoid wasting search budget.
 
 OP_SEARCH_SPACE: Dict[str, Dict[str, List[float]]] = {
-    # Mild operations - can use higher probability
-    # v5.5: ranges kept wide for mild ops
-    "ColorJitter":       {"m": [0.1, 0.8], "p": [0.2, 0.8]},
-    "RandomGrayscale":   {"m": [0.5, 0.5], "p": [0.1, 0.6]},  # m fixed, only search p
-    "GaussianNoise":     {"m": [0.02, 0.25], "p": [0.2, 0.8]},  # v5.5: reduced from [0.05,0.5]
+    # v7.0 UPDATE: Expanded magnitude ranges to provide stronger regularization.
+    # Previous v5.5 ranges were too conservative, causing insufficient augmentation
+    # and severe overfitting (train 99% vs val 40%). RandAugment uses M=9 (~0.3 magnitude).
     
-    # Medium operations
-    # v5.5: more conservative to avoid losing key regions
-    "RandomResizedCrop": {"m": [0.5, 0.95], "p": [0.3, 0.8]},  # v5.5: scale_min higher
-    "RandomRotation":    {"m": [0.0, 0.4], "p": [0.2, 0.6]},   # ~0-18 degrees
-    "GaussianBlur":      {"m": [0.0, 0.3], "p": [0.2, 0.6]},
+    # Mild operations - can use higher probability and magnitude
+    "ColorJitter":       {"m": [0.1, 0.9], "p": [0.3, 0.9]},   # v7: expanded from 0.8
+    "RandomGrayscale":   {"m": [0.5, 0.5], "p": [0.1, 0.7]},   # m fixed, only search p
+    "GaussianNoise":     {"m": [0.02, 0.4], "p": [0.3, 0.9]},  # v7: expanded from 0.25
     
-    # Destructive operations - need lower probability
-    # v5.5: tighter ranges to avoid "必炸区"
-    "RandomErasing":     {"m": [0.02, 0.20], "p": [0.1, 0.5]},  # v5.5: area reduced
-    "RandomPerspective": {"m": [0.0, 0.25], "p": [0.1, 0.5]},   # v5.5: reduced from 0.3
+    # Medium operations - moderate expansion
+    "RandomResizedCrop": {"m": [0.4, 0.95], "p": [0.3, 0.8]},  # v7: lower bound from 0.5 to 0.4
+    "RandomRotation":    {"m": [0.0, 0.5], "p": [0.2, 0.7]},   # v7: expanded to ~22.5 degrees
+    "GaussianBlur":      {"m": [0.0, 0.5], "p": [0.2, 0.7]},   # v7: expanded from 0.3
+    
+    # Destructive operations - carefully expanded (still need lower p)
+    # v7: Balance between strength and safety
+    "RandomErasing":     {"m": [0.02, 0.35], "p": [0.1, 0.6]}, # v7: expanded from 0.20
+    "RandomPerspective": {"m": [0.0, 0.4], "p": [0.1, 0.6]},   # v7: expanded from 0.25
 }
 
 

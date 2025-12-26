@@ -1,24 +1,32 @@
-# Phase C: Dynamic Prior-Guided Policy Construction
+# Phase C: Greedy Combination Search with Validation
 """
-Phase C: Dynamic Prior-Guided Policy Construction (v6).
+Phase C: Greedy Combination Search with Validation (v7).
 
-v6.0 CHANGED: Shift from Static Greedy Ensemble to Dynamic Policy.
-Reference: docs/research_plan_v6.md
+v7.0 CHANGED: Return to validated combination search.
+Reference: docs/research_plan_v7.md
 
-Algorithm (v6 Dynamic Strategy):
-1. Load Phase B results (Phase A for auxiliary candidates).
-2. Select Top-K performing operations to form the "Elite Pool".
-3. Dynamic Policy: For each image, randomly select N operations from the pool.
-4. Validate this dynamic policy using multi-seed training.
-5. Save the policy (Elite Pool + N) in v6 JSON format.
+Algorithm (v7 Greedy Combination with Validation):
+1. Load Phase B results → get best (m, p) for each operation.
+2. Start with the single best operation.
+3. Greedy search: try adding complementary operations.
+4. Validate each combination: only accept if acc > current + min_improvement.
+5. Use t-test to verify statistical significance.
+6. Stop when no improvement found or max_ops reached.
+7. Save policy with full (name, magnitude, probability) tuples.
+
+Key Parameters:
+- max_ops: Maximum number of operations to combine (default 3)
+- min_improvement: Minimum accuracy gain to accept new op (default 0.1%)
+- p_any_target: Target probability for combination adjustment (default 0.7)
 
 Usage:
     # Full run
-    python main_phase_c.py --top_k 6 --n_ops 2
+    python main_phase_c.py --max_ops 3 --min_improvement 0.1
     
     # Dry run
     python main_phase_c.py --dry_run
 """
+
 
 import argparse
 import csv
@@ -466,28 +474,34 @@ def check_csv_needs_header(path: Path) -> bool:
 # =============================================================================
 
 def save_policy(
-    pool: List[Tuple[str, float]],
-    n_ops: int,
+    ops: List[Tuple[str, float, float]],  # v7: now includes probability
     baseline_acc: float,
     final_acc: float,
     output_path: Path,
+    strategy: str = "greedy_validated",  # v7: new strategy type
+    best_single_acc: float = None,
 ) -> None:
-    """Save final dynamic policy to JSON file."""
+    """Save final policy to JSON file (v7 format).
+    
+    v7: Saves full (name, magnitude, probability) for each operation.
+    """
     policy_dict = {
-        "version": "v6.0",
+        "version": "v7.0",
         "phase": "PhaseC",
-        "strategy": "dynamic_prior",
+        "strategy": strategy,
         "baseline_acc": baseline_acc,
+        "best_single_acc": best_single_acc,
         "final_acc": final_acc,
-        "improvement": round(final_acc - baseline_acc, 4),
-        "n_ops": n_ops,
-        "pool_size": len(pool),
-        "pool": [
+        "improvement_over_baseline": round(final_acc - baseline_acc, 4),
+        "improvement_over_single": round(final_acc - best_single_acc, 4) if best_single_acc else None,
+        "n_ops": len(ops),
+        "ops": [
             {
                 "name": op[0],
                 "magnitude": round(op[1], 4),
+                "probability": round(op[2], 4),
             }
-            for op in pool
+            for op in ops
         ],
         "timestamp": datetime.now().isoformat(timespec='seconds'),
     }
@@ -517,113 +531,364 @@ def load_policy_for_dynamic(json_path: Path) -> Tuple[List[Tuple[str, float]], i
 
 
 # =============================================================================
-# Single-Path Greedy Search Helper
+# v7: Greedy Combination Search with Validation (New Main Logic)
 # =============================================================================
 
-# =============================================================================
-# v6: Dynamic Policy Construction (New Main Logic)
-# =============================================================================
+def train_static_policy(
+    ops: List[Tuple[str, float, float]],  # (name, magnitude, probability)
+    seed: int,
+    epochs: int,
+    device: torch.device,
+    fold_idx: int = 0,
+    batch_size: int = 128,
+    num_workers: int = 8,
+    weight_decay: float = 1e-2,
+    label_smoothing: float = 0.1,
+    p_any_target: float = 0.7,
+) -> Dict:
+    """Train a static combination policy and return metrics.
+    
+    v7: Uses build_transform_with_ops with adjusted probabilities.
+    """
+    from src.augmentations import build_transform_with_ops
+    
+    start_time = time.time()
+    set_seed_deterministic(seed, deterministic=True)
+    
+    # Adjust probabilities for combination
+    if len(ops) > 1:
+        adjusted_ops = adjust_probabilities_for_combination(ops, p_any_target=p_any_target)
+    else:
+        adjusted_ops = ops
+    
+    # Build string for logging
+    ops_str = "+".join([op[0] for op in adjusted_ops])
+    mag_str = "+".join([f"{op[1]:.3f}" for op in adjusted_ops])
+    prob_str = "+".join([f"{op[2]:.3f}" for op in adjusted_ops])
+    
+    result = {
+        "phase": "PhaseC",
+        "op_name": ops_str,
+        "magnitude": mag_str,
+        "probability": prob_str,
+        "seed": seed,
+        "fold_idx": fold_idx,
+        "val_acc": -1.0,
+        "val_loss": -1.0,
+        "top5_acc": -1.0,
+        "train_acc": -1.0,
+        "train_loss": -1.0,
+        "epochs_run": 0,
+        "best_epoch": 0,
+        "early_stopped": False,
+        "runtime_sec": 0.0,
+        "timestamp": "",
+        "error": "",
+    }
+    
+    try:
+        # Build transforms
+        train_transform = build_transform_with_ops(adjusted_ops, include_baseline=True, include_normalize=False)
+        val_transform = get_val_transform(include_normalize=False)
+        
+        # Create datasets
+        train_dataset = CIFAR100Subsampled(
+            root="./data", train=True, fold_idx=fold_idx,
+            transform=train_transform, download=True,
+        )
+        val_dataset = CIFAR100Subsampled(
+            root="./data", train=False, fold_idx=fold_idx,
+            transform=val_transform, download=True,
+        )
+        
+        # Create data loaders
+        use_cuda = device.type == "cuda"
+        train_loader = DataLoader(
+            train_dataset, batch_size=batch_size, shuffle=True,
+            num_workers=num_workers, pin_memory=use_cuda, drop_last=False,
+            persistent_workers=True if num_workers > 0 else False,
+            prefetch_factor=4 if num_workers > 0 else None,
+        )
+        val_loader = DataLoader(
+            val_dataset, batch_size=batch_size, shuffle=False,
+            num_workers=num_workers, pin_memory=use_cuda, drop_last=False,
+            persistent_workers=True if num_workers > 0 else False,
+            prefetch_factor=4 if num_workers > 0 else None,
+        )
+        
+        # Model
+        model = create_model(num_classes=100, pretrained=False)
+        model = model.to(device)
+        if use_cuda:
+            model = model.to(memory_format=torch.channels_last)
+        
+        criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+        optimizer, scheduler = get_optimizer_and_scheduler(
+            model=model, total_epochs=epochs, lr=0.1,
+            weight_decay=weight_decay, momentum=0.9, warmup_epochs=5,
+        )
+        scaler = torch.amp.GradScaler() if device.type == "cuda" else None
+        
+        early_stopper = EarlyStopping(patience=60, mode="max", min_epochs=60, min_delta=0.2)
+        
+        best_val_acc = 0.0
+        best_val_loss = float("inf")
+        best_top5_acc = 0.0
+        best_train_acc = 0.0
+        best_train_loss = 0.0
+        best_epoch = 0
+        
+        for epoch in range(epochs):
+            train_loss, train_acc = train_one_epoch(
+                model=model, train_loader=train_loader, criterion=criterion,
+                optimizer=optimizer, device=device, scaler=scaler,
+            )
+            val_loss, val_acc, top5_acc = evaluate(
+                model=model, val_loader=val_loader, criterion=criterion, device=device,
+            )
+            
+            if val_acc > best_val_acc:
+                best_val_acc = val_acc
+                best_val_loss = val_loss
+                best_top5_acc = top5_acc
+                best_train_acc = train_acc
+                best_train_loss = train_loss
+                best_epoch = epoch + 1
+            
+            scheduler.step()
+            
+            if early_stopper(val_acc, epoch):
+                result["epochs_run"] = epoch + 1
+                result["early_stopped"] = True
+                break
+            result["epochs_run"] = epoch + 1
+        
+        result["val_acc"] = round(best_val_acc, 4)
+        result["val_loss"] = round(best_val_loss, 6)
+        result["top5_acc"] = round(best_top5_acc, 4)
+        result["train_acc"] = round(best_train_acc, 4)
+        result["train_loss"] = round(best_train_loss, 6)
+        result["best_epoch"] = best_epoch
+        
+    except Exception as e:
+        result["error"] = f"{type(e).__name__}: {str(e)}"
+        traceback.print_exc()
+    
+    result["runtime_sec"] = round(time.time() - start_time, 2)
+    result["timestamp"] = datetime.now().isoformat(timespec='seconds')
+    
+    return result
 
-def run_dynamic_validation(
+
+def train_static_multi_seed(
+    ops: List[Tuple[str, float, float]],
+    seeds: List[int],
+    epochs: int,
+    device: torch.device,
+    fold_idx: int = 0,
+    p_any_target: float = 0.7,
+    weight_decay: float = 1e-2,
+    label_smoothing: float = 0.1,
+    **kwargs,
+) -> Tuple[float, float, List[Dict], List[float]]:
+    """Train static policy with multiple seeds, return mean/std and raw accuracies."""
+    results = []
+    val_accs = []
+    
+    for seed in seeds:
+        result = train_static_policy(
+            ops=ops, seed=seed, epochs=epochs, device=device, fold_idx=fold_idx,
+            p_any_target=p_any_target, weight_decay=weight_decay,
+            label_smoothing=label_smoothing, **kwargs,
+        )
+        results.append(result)
+        if not result["error"]:
+            val_accs.append(result["val_acc"])
+    
+    if val_accs:
+        mean_acc = np.mean(val_accs)
+        std_acc = np.std(val_accs) if len(val_accs) > 1 else 0.0
+    else:
+        mean_acc = -1.0
+        std_acc = 0.0
+    
+    return mean_acc, std_acc, results, val_accs
+
+
+def run_greedy_combination_search(
     phase_b_csv: Path,
     baseline_acc: float,
     output_dir: Path,
-    top_k: int = 6,
-    n_ops: int = 2,
+    max_ops: int = 3,
+    min_improvement: float = 0.1,
+    p_any_target: float = 0.7,
     epochs: int = 200,
     seeds: List[int] = [42, 123, 456],
     fold_idx: int = 0,
     num_workers: int = 8,
-    early_stop_patience: int = 200,
-    deterministic: bool = True,
     dry_run: bool = False,
     weight_decay: float = 1e-2,
     label_smoothing: float = 0.1,
 ) -> float:
-    """Run Phase C Dynamic Policy Validation.
+    """Run Phase C Greedy Combination Search with Validation (v7).
     
-    1. Select Top-K ops from Phase B.
-    2. Construct Elite Pool.
-    3. Validate using DynamicAugment.
+    Algorithm:
+    1. Start with best single operation from Phase B.
+    2. Try adding each candidate operation.
+    3. Keep addition only if it improves accuracy by min_improvement.
+    4. Repeat until no improvement or max_ops reached.
     """
+    from scipy import stats
+    
     ensure_dir(output_dir)
     ensure_dir(output_dir / "checkpoints")
     history_csv_path = output_dir / "phase_c_history.csv"
     final_policy_json = output_dir / "phase_c_final_policy.json"
+    device = get_device()
     
     # Load Phase B results
     print(f"Loading Phase B results from: {phase_b_csv}")
     phase_b_df = load_phase_b_summary(phase_b_csv)
     best_configs = get_best_config_per_op(phase_b_df)
     
-    # Sort ops by Phase B accuracy
-    sorted_ops = sorted(
-        best_configs.items(),
-        key=lambda x: x[1][2], # Sort by acc
-        reverse=True
-    )
+    # Sort by accuracy
+    sorted_ops = sorted(best_configs.items(), key=lambda x: x[1][2], reverse=True)
     
-    # Select Top-K
-    top_ops = sorted_ops[:top_k]
     print(f"\n{'='*70}")
-    print(f"Phase C: Dynamic Prior-Guided Policy (v6)")
+    print(f"Phase C: Greedy Combination Search with Validation (v7)")
     print(f"{'='*70}")
-    print(f"Top-{top_k} Elite Operations Selected:")
-    for i, (name, (mag, prob, acc)) in enumerate(top_ops):
-        print(f"{i+1}. {name}: m={mag:.4f}, PhaseB_Acc={acc:.2f}%")
-        
-    # Construct Elite Pool (List of (name, mag))
-    elite_pool = [(name, config[0]) for name, config in top_ops]
-    
-    # Run Validation
-    print(f"\nValidating Dynamic Policy (Pool size={len(elite_pool)}, N={n_ops})...")
-    print(f"Baseline Acc: {baseline_acc:.2f}%")
+    print(f"Parameters: max_ops={max_ops}, min_improvement={min_improvement}%, p_any_target={p_any_target}")
+    print(f"\nAvailable operations (sorted by Phase B accuracy):")
+    for i, (name, (mag, prob, acc)) in enumerate(sorted_ops):
+        print(f"  {i+1}. {name}: m={mag:.4f}, p={prob:.4f}, acc={acc:.2f}%")
     
     if dry_run:
         epochs = 2
         seeds = seeds[:1]
-        
-    mean_acc, std_acc, results = train_with_multi_seed(
-        ops=elite_pool,
-        n_ops=n_ops,
-        seeds=seeds,
-        epochs=epochs,
-        device=get_device(),
-        fold_idx=fold_idx,
-        num_workers=num_workers,
-        early_stop_patience=early_stop_patience,
-        deterministic=deterministic,
-        save_checkpoint=True,
-        checkpoint_dir=output_dir / "checkpoints",
-        weight_decay=weight_decay,
-        label_smoothing=label_smoothing,
+        print("\n*** DRY RUN MODE ***")
+    
+    write_header = check_csv_needs_header(history_csv_path)
+    
+    # Step 1: Start with best single operation
+    best_op_name, (best_m, best_p, best_phase_b_acc) = sorted_ops[0]
+    current_policy = [(best_op_name, best_m, best_p)]
+    
+    print(f"\n--- Step 1: Evaluate Best Single Operation ---")
+    print(f"Testing: {best_op_name} (m={best_m:.4f}, p={best_p:.4f})")
+    
+    mean_acc, std_acc, results, raw_accs = train_static_multi_seed(
+        ops=current_policy, seeds=seeds, epochs=epochs, device=device,
+        fold_idx=fold_idx, p_any_target=p_any_target,
+        weight_decay=weight_decay, label_smoothing=label_smoothing,
     )
     
-    # Write history
-    write_header = check_csv_needs_header(history_csv_path)
     for res in results:
         write_csv_row(history_csv_path, res, write_header)
         write_header = False
-        
-    print(f"\nFinal Result: {mean_acc:.2f}% ± {std_acc:.2f}%")
-    improvement = mean_acc - baseline_acc
-    print(f"Improvement over Baseline: {improvement:+.2f}%")
     
-    # Save Policy
+    current_acc = mean_acc
+    current_raw_accs = raw_accs
+    best_single_acc = mean_acc
+    
+    print(f"Result: {mean_acc:.2f}% ± {std_acc:.2f}%")
+    
+    # Step 2: Greedy search for additional operations
+    for step in range(2, max_ops + 1):
+        print(f"\n--- Step {step}: Search for Complementary Operation ---")
+        
+        # Get candidate operations (exclude those already in policy)
+        used_names = {op[0] for op in current_policy}
+        candidates = [(name, cfg) for name, cfg in sorted_ops if name not in used_names]
+        
+        if not candidates:
+            print("No more candidate operations available.")
+            break
+        
+        best_candidate = None
+        best_candidate_acc = current_acc
+        best_candidate_raw = None
+        
+        for cand_name, (cand_m, cand_p, _) in candidates:
+            # Check mutual exclusion
+            is_excluded = False
+            for existing_op in current_policy:
+                if check_mutual_exclusion(existing_op[0], cand_name):
+                    print(f"  Skipping {cand_name}: mutually exclusive with {existing_op[0]}")
+                    is_excluded = True
+                    break
+            if is_excluded:
+                continue
+            
+            test_policy = current_policy + [(cand_name, cand_m, cand_p)]
+            print(f"  Testing: {'+'.join([op[0] for op in test_policy])}")
+            
+            mean_acc, std_acc, results, raw_accs = train_static_multi_seed(
+                ops=test_policy, seeds=seeds, epochs=epochs, device=device,
+                fold_idx=fold_idx, p_any_target=p_any_target,
+                weight_decay=weight_decay, label_smoothing=label_smoothing,
+            )
+            
+            for res in results:
+                write_csv_row(history_csv_path, res, write_header)
+                write_header = False
+            
+            print(f"    Result: {mean_acc:.2f}% ± {std_acc:.2f}%")
+            
+            if mean_acc > best_candidate_acc:
+                best_candidate = (cand_name, cand_m, cand_p)
+                best_candidate_acc = mean_acc
+                best_candidate_raw = raw_accs
+        
+        # Check if best candidate improves enough
+        if best_candidate is not None:
+            improvement = best_candidate_acc - current_acc
+            
+            # T-test for significance (if we have enough samples)
+            if len(current_raw_accs) >= 2 and len(best_candidate_raw) >= 2:
+                _, p_value = stats.ttest_ind(best_candidate_raw, current_raw_accs)
+            else:
+                p_value = 1.0
+            
+            print(f"\n  Best candidate: {best_candidate[0]}")
+            print(f"  Improvement: {improvement:+.2f}% (p-value: {p_value:.4f})")
+            
+            if improvement >= min_improvement and p_value < 0.2:
+                print(f"  ✓ Accepted! Adding {best_candidate[0]} to policy.")
+                current_policy.append(best_candidate)
+                current_acc = best_candidate_acc
+                current_raw_accs = best_candidate_raw
+            else:
+                print(f"  ✗ Rejected. Improvement too small or not significant.")
+                break
+        else:
+            print(f"\n  No improvement found. Stopping search.")
+            break
+    
+    # Final summary
+    print(f"\n{'='*70}")
+    print(f"Phase C Complete")
+    print(f"{'='*70}")
+    print(f"Final Policy: {'+'.join([op[0] for op in current_policy])}")
+    print(f"Final Accuracy: {current_acc:.2f}%")
+    print(f"Improvement over Baseline: {current_acc - baseline_acc:+.2f}%")
+    print(f"Improvement over Single Op: {current_acc - best_single_acc:+.2f}%")
+    
+    # Save policy
     save_policy(
-        pool=elite_pool,
-        n_ops=n_ops,
+        ops=current_policy,
         baseline_acc=baseline_acc,
-        final_acc=mean_acc,
+        final_acc=current_acc,
         output_path=final_policy_json,
+        strategy="greedy_validated",
+        best_single_acc=best_single_acc,
     )
     
-    return mean_acc
+    return current_acc
 
 def parse_args() -> argparse.Namespace:
-    """Parse command line arguments."""
+    """Parse command line arguments (v7)."""
     parser = argparse.ArgumentParser(
-        description="Phase C: Dynamic Prior-Guided Policy Construction (v6)"
+        description="Phase C: Greedy Combination Search with Validation (v7)"
     )
     
     parser.add_argument(
@@ -636,7 +901,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--baseline_acc",
         type=float,
-        default=39.5, # Default baseline for reference
+        default=39.5,
         help="Baseline accuracy for reference (default: 39.5)"
     )
     
@@ -648,17 +913,24 @@ def parse_args() -> argparse.Namespace:
     )
     
     parser.add_argument(
-        "--top_k",
+        "--max_ops",
         type=int,
-        default=6,
-        help="Number of top operations to select for Elite Pool (default: 6)"
+        default=3,
+        help="Maximum number of operations to combine (default: 3)"
     )
     
     parser.add_argument(
-        "--n_ops",
-        type=int,
-        default=2,
-        help="Number of operations to apply per image (default: 2)"
+        "--min_improvement",
+        type=float,
+        default=0.1,
+        help="Minimum accuracy improvement to accept new op (default: 0.1%%)"
+    )
+    
+    parser.add_argument(
+        "--p_any_target",
+        type=float,
+        default=0.7,
+        help="Target probability for combination adjustment (default: 0.7)"
     )
     
     parser.add_argument(
@@ -707,14 +979,15 @@ if __name__ == "__main__":
     else:
         print("[Phase0] phase0_summary.csv not found; fallback to defaults wd=1e-2, ls=0.1")
     
-    print(f"Starting Phase C (Dynamic Policy v6)...")
+    print(f"Starting Phase C (Greedy Combination Search v7)...")
     try:
-        run_dynamic_validation(
+        run_greedy_combination_search(
             phase_b_csv=phase_b_csv,
             baseline_acc=args.baseline_acc,
             output_dir=output_dir,
-            top_k=args.top_k,
-            n_ops=args.n_ops,
+            max_ops=args.max_ops,
+            min_improvement=args.min_improvement,
+            p_any_target=args.p_any_target,
             epochs=args.epochs,
             seeds=seeds,
             fold_idx=args.fold_idx,
@@ -726,4 +999,3 @@ if __name__ == "__main__":
         print(f"FATAL ERROR: {e}")
         traceback.print_exc()
         sys.exit(1)
-
