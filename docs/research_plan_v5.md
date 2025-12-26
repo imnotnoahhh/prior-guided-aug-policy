@@ -73,7 +73,7 @@ v4 实验发现：
 | **ColorJitter** | [0.1, 0.8] | [0.2, 0.8] | 温和 | b/c/s 同步变化 |
 | **RandomGrayscale** | [0.5, 0.5] | [0.1, 0.6] | 温和 | m 固定，只搜 p |
 | **GaussianBlur** | [0.0, 0.3] | [0.2, 0.6] | 中等 | sigma ∈ [0.1, 2.0] |
-| **RandomErasing** | [0.05, 0.3] | [0.1, 0.4] | 破坏性 | 需低 p，放在 Tensor 后 |
+| **RandomErasing** | [0.05, 0.3] | [0.1, 0.5] | 破坏性 | 需低 p，放在 Tensor 后 (v5.4 扩展) |
 | **GaussianNoise** | [0.05, 0.5] | [0.2, 0.8] | 温和 | 需 `torch.clamp` |
 
 **代码配置** (`OP_SEARCH_SPACE`):
@@ -85,7 +85,7 @@ OP_SEARCH_SPACE = {
     "ColorJitter":       {"m": [0.1, 0.8], "p": [0.2, 0.8]},
     "RandomGrayscale":   {"m": [0.5, 0.5], "p": [0.1, 0.6]},  # m固定，只搜p
     "GaussianBlur":      {"m": [0.0, 0.3], "p": [0.2, 0.6]},
-    "RandomErasing":     {"m": [0.05, 0.3], "p": [0.1, 0.4]},
+    "RandomErasing":     {"m": [0.05, 0.3], "p": [0.1, 0.5]},  # v5.4: 扩展到 0.5
     "GaussianNoise":     {"m": [0.05, 0.5], "p": [0.2, 0.8]},
 }
 ```

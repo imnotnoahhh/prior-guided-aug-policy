@@ -306,10 +306,13 @@ python main_phase_c.py \
     --baseline_acc 37.0  # 可选，手动指定 Baseline 准确率 \
     --max_ops 3 \
     --improvement_threshold 0.1 \
+    --p_any_target 0.5 \
     --num_workers 8
 ```
 
-> **v5.4 变更**: Phase C 统一使用 200 epochs，与 Phase A/B 保持一致的训练预算，确保公平对比。
+> **v5.4 变更**:
+> - Phase C 统一使用 200 epochs，与 Phase A/B 保持一致的训练预算，确保公平对比。
+> - 新增 `--p_any_target` 参数，控制组合策略的总体增广强度（默认 0.5 = 50% 样本被增广）。
 
 ### 5.4 输入文件
 
@@ -336,9 +339,42 @@ Phase C 使用贪心算法构建最终策略：
 3. 对每个候选 Op：
    - 检查互斥约束（如 RandomRotation 和 RandomPerspective 互斥）
    - 训练 P + Op × 3 seeds × 200 epochs
-   - 如果 mean_acc > Acc(P) + 0.3%，则接受该 Op
+   - 如果 mean_acc > Acc(P) + 0.1%，则接受该 Op
 4. 最多添加 3 个额外操作
 5. 输出最终策略 P_final
+
+### 5.7 概率调整机制 (v5.4)
+
+当组合多个操作时，每个操作独立应用会导致总体增广强度过高。Phase C 使用破坏性权重自动调整概率：
+
+| 操作 | 破坏性 d | 权重 w=1-d |
+|------|----------|------------|
+| RandomErasing | 0.85 | 0.15 |
+| RandomPerspective | 0.80 | 0.20 |
+| RandomResizedCrop | 0.65 | 0.35 |
+| RandomRotation | 0.40 | 0.60 |
+| GaussianBlur | 0.30 | 0.70 |
+| RandomGrayscale | 0.30 | 0.70 |
+| GaussianNoise | 0.20 | 0.80 |
+| ColorJitter | 0.20 | 0.80 |
+
+**调整公式**: `p'_i = α × w_i × p_i`，其中 α 由二分搜索求解使得 `P(至少一个增广) = p_any_target`。
+
+**策略 JSON 格式** (v5.4):
+```json
+{
+  "version": "v5.4",
+  "p_any_target": 0.5,
+  "ops": [
+    {
+      "name": "GaussianNoise",
+      "magnitude": 0.34,
+      "probability_original": 0.34,
+      "probability_adjusted": 0.27
+    }
+  ]
+}
+```
 
 ### 5.7 运行记录
 
@@ -441,17 +477,21 @@ python main_phase_d.py \
     --num_workers 6
 ```
 
-> **v5.4 变更**: Phase D 统一使用 200 epochs，与 Phase A/B/C 保持一致的训练预算，确保公平对比。
+> **v5.4 变更**:
+> - Phase D 统一使用 200 epochs，与 Phase A/B/C 保持一致的训练预算，确保公平对比。
+> - 新增 Baseline-NoAug 消融实验，验证基础增强的作用。
+> - Ours_optimal 现在使用 probability_adjusted（调整后概率），控制总体增广强度。
 
 ### 6.5 对比方法说明
 
 | 方法 | 说明 | 参数 |
 |------|------|------|
 | **Baseline** | S0 基础增强 | RandomCrop(32, padding=4) + HorizontalFlip(p=0.5) |
+| **Baseline-NoAug** | 无增强消融 | 仅 ToTensor，验证基础增强的作用 |
 | **RandAugment** | 自动增强 SOTA | N=2, M=9 (标准设置) |
 | **Cutout** | 遮挡增强 SOTA | n_holes=1, length=16 |
-| **Ours_p1** | 消融对照 | Phase C 策略，所有 p 强制为 1.0 |
-| **Ours_optimal** | 最终方法 | Phase C 策略，使用优化的 (m, p) |
+| **Ours_p1** | 消融对照 | Phase C 策略，所有 p 强制为 1.0（使用 probability_original） |
+| **Ours_optimal** | 最终方法 | Phase C 策略，使用 probability_adjusted（经破坏性加权调整） |
 
 ### 6.6 输入文件
 

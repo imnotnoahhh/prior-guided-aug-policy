@@ -57,6 +57,7 @@ from src.augmentations import (
     get_val_transform,
     get_compatible_ops,
     check_mutual_exclusion,
+    adjust_probabilities_for_combination,
 )
 from src.dataset import CIFAR100Subsampled
 from src.models import create_model
@@ -512,29 +513,41 @@ def save_policy(
     baseline_acc: float,
     final_acc: float,
     output_path: Path,
+    p_any_target: float = 0.5,
 ) -> None:
     """Save final policy to JSON file.
+    
+    v5.4: Now includes adjusted probabilities for combination.
     
     Args:
         policy: List of (op_name, magnitude, probability) tuples.
         baseline_acc: Baseline accuracy for reference.
         final_acc: Final policy accuracy.
         output_path: Path to save JSON file.
+        p_any_target: Target probability for combination adjustment.
     """
+    # Compute adjusted probabilities for combination
+    if len(policy) > 1:
+        adjusted_policy = adjust_probabilities_for_combination(policy, p_any_target)
+    else:
+        adjusted_policy = policy
+    
     policy_dict = {
-        "version": "v5",
+        "version": "v5.4",
         "phase": "PhaseC",
         "baseline_acc": baseline_acc,
         "final_acc": final_acc,
         "improvement": round(final_acc - baseline_acc, 4),
         "n_ops": len(policy),
+        "p_any_target": p_any_target,
         "ops": [
             {
-                "name": op[0],
-                "magnitude": round(op[1], 4),
-                "probability": round(op[2], 4),
+                "name": policy[i][0],
+                "magnitude": round(policy[i][1], 4),
+                "probability_original": round(policy[i][2], 4),
+                "probability_adjusted": round(adjusted_policy[i][2], 4),
             }
-            for op in policy
+            for i in range(len(policy))
         ],
         "timestamp": datetime.now().isoformat(timespec='seconds'),
     }
@@ -746,10 +759,12 @@ def run_phase_c(
     save_checkpoints: bool = True,
     phase_a_csv: Optional[Path] = None,
     n_start_points: int = 3,
+    p_any_target: float = 0.5,
 ) -> List[Tuple[str, float, float]]:
     """Run Phase C greedy ensemble algorithm with multi-start search.
     
     v5.4: Multi-start greedy search using Phase A and Phase B top configs.
+    v5.4: Added probability adjustment for combination (p_any_target).
     v5.1: Added checkpoint saving for accepted policies.
     
     Args:
@@ -768,6 +783,7 @@ def run_phase_c(
         save_checkpoints: If True, save checkpoints for accepted policies.
         phase_a_csv: Path to Phase A results CSV for multi-start search.
         n_start_points: Number of starting points to try (default 3).
+        p_any_target: Target probability for at least one augmentation (default 0.5).
         
     Returns:
         Final policy as list of (op_name, magnitude, probability) tuples.
@@ -897,12 +913,13 @@ def run_phase_c(
     print("-" * 70)
     print(f"History saved to: {history_csv_path}")
     
-    # Save final policy
+    # Save final policy (includes original and adjusted probabilities)
     save_policy(
         policy=best_policy,
         baseline_acc=baseline_800ep_acc,
         final_acc=best_acc,
         output_path=policy_json_path,
+        p_any_target=p_any_target,
     )
     
     return best_policy
@@ -1027,6 +1044,13 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.1,
         help="Minimum improvement threshold in %% (default: 0.1)"
+    )
+    
+    parser.add_argument(
+        "--p_any_target",
+        type=float,
+        default=0.5,
+        help="Target probability for at least one augmentation (default: 0.5)"
     )
     
     parser.add_argument(
@@ -1165,6 +1189,7 @@ def main() -> int:
             dry_run=args.dry_run,
             phase_a_csv=Path(args.phase_a_csv),
             n_start_points=args.n_start_points,
+            p_any_target=args.p_any_target,
         )
         return 0
         

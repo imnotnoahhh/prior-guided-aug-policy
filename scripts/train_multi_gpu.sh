@@ -255,7 +255,8 @@ check_success "${OUTPUT_DIR}/phase_c_final_policy.json" "Phase C"
 # Phase D (4 GPU 并行 - 按 fold 分配)
 # -----------------------------------------------------------------------------
 print_header "[5/5] Phase D SOTA 对比 (4 GPU 并行)"
-echo "配置: 5 methods × 5 folds × 200 epochs (与 A/B 一致)"
+echo "配置: 6 methods × 5 folds × 200 epochs (与 A/B 一致)"
+echo "Methods: Baseline, Baseline-NoAug, RandAugment, Cutout, Ours_p1, Ours_optimal"
 START_TIME=$(date +%s)
 
 # 5 folds 分配到 4 GPU: GPU0=fold0,1, GPU1=fold2, GPU2=fold3, GPU3=fold4

@@ -78,7 +78,8 @@ from src.utils import (
 # =============================================================================
 
 # Available methods for comparison
-AVAILABLE_METHODS = ["Baseline", "RandAugment", "Cutout", "Ours_p1", "Ours_optimal"]
+# v5.4: Added "Baseline-NoAug" for ablation (no augmentation at all)
+AVAILABLE_METHODS = ["Baseline", "Baseline-NoAug", "RandAugment", "Cutout", "Ours_p1", "Ours_optimal"]
 
 
 def get_method_transform(
@@ -86,6 +87,8 @@ def get_method_transform(
     policy: Optional[List[Tuple[str, float, float]]] = None,
 ) -> Callable:
     """Get transform for a given method.
+    
+    v5.4: Ours_optimal now uses probability_adjusted from policy JSON.
     
     Args:
         method_name: One of AVAILABLE_METHODS.
@@ -99,6 +102,14 @@ def get_method_transform(
     """
     if method_name == "Baseline":
         return get_baseline_transform(include_normalize=False)
+    
+    elif method_name == "Baseline-NoAug":
+        # v5.4: No augmentation at all - just ToTensor without any augmentation
+        # Note: still need to resize to 32x32 for CIFAR
+        from torchvision import transforms
+        return transforms.Compose([
+            transforms.ToTensor(),
+        ])
     
     elif method_name == "RandAugment":
         return get_randaugment_transform(n=2, m=9, include_baseline=True, include_normalize=False)
@@ -126,10 +137,11 @@ def get_method_description(method_name: str) -> str:
     """Get human-readable description of a method."""
     descriptions = {
         "Baseline": "S0 (RandomCrop + HorizontalFlip)",
+        "Baseline-NoAug": "No augmentation (ablation)",
         "RandAugment": "RandAugment (N=2, M=9)",
         "Cutout": "Cutout (length=16)",
         "Ours_p1": "Ours (p=1.0 ablation)",
-        "Ours_optimal": "Ours (optimal p)",
+        "Ours_optimal": "Ours (optimal p, adjusted)",
     }
     return descriptions.get(method_name, method_name)
 
@@ -138,11 +150,16 @@ def get_method_description(method_name: str) -> str:
 # Policy Loading
 # =============================================================================
 
-def load_policy(json_path: Path) -> List[Tuple[str, float, float]]:
+def load_policy(json_path: Path, use_adjusted: bool = True) -> List[Tuple[str, float, float]]:
     """Load policy from Phase C JSON file.
+    
+    v5.4: Supports loading adjusted probabilities for combination.
     
     Args:
         json_path: Path to phase_c_final_policy.json
+        use_adjusted: If True, use probability_adjusted (for Ours_optimal).
+                      If False, use probability_original (for Ours_p1).
+                      Falls back to "probability" for backward compatibility.
         
     Returns:
         List of (op_name, magnitude, probability) tuples.
@@ -155,7 +172,19 @@ def load_policy(json_path: Path) -> List[Tuple[str, float, float]]:
     
     policy = []
     for op in policy_dict.get("ops", []):
-        policy.append((op["name"], op["magnitude"], op["probability"]))
+        name = op["name"]
+        magnitude = op["magnitude"]
+        
+        # v5.4: Support adjusted probabilities
+        if use_adjusted and "probability_adjusted" in op:
+            probability = op["probability_adjusted"]
+        elif "probability_original" in op:
+            probability = op["probability_original"]
+        else:
+            # Backward compatibility: use "probability" key
+            probability = op.get("probability", 1.0)
+        
+        policy.append((name, magnitude, probability))
     
     return policy
 
@@ -557,12 +586,19 @@ def run_phase_d(
                 policy_json = main_policy_path  # For error message
         
         if policy_json.exists():
-            policy = load_policy(policy_json)
+            # v5.4: Load both original and adjusted policies
+            policy_original = load_policy(policy_json, use_adjusted=False)
+            policy_adjusted = load_policy(policy_json, use_adjusted=True)
+            policy = policy_adjusted  # Default for get_method_transform
+            
             print(f"Loaded policy from {policy_json}")
-            print(f"Policy: {[(op[0], f'm={op[1]:.2f}', f'p={op[2]:.2f}') for op in policy]}")
+            print(f"Policy (original): {[(op[0], f'm={op[1]:.2f}', f'p={op[2]:.2f}') for op in policy_original]}")
+            print(f"Policy (adjusted): {[(op[0], f'm={op[1]:.2f}', f'p={op[2]:.2f}') for op in policy_adjusted]}")
         else:
             print(f"WARNING: Policy file not found: {policy_json}")
             print("Ours_p1 and Ours_optimal will use baseline only.")
+            policy_original = None
+            policy_adjusted = None
     
     print("=" * 70)
     print("Phase D: SOTA Benchmark Comparison")
@@ -593,7 +629,15 @@ def run_phase_d(
         print("=" * 70)
         
         try:
-            transform = get_method_transform(method_name, policy)
+            # v5.4: Use appropriate policy version for each method
+            if method_name == "Ours_p1":
+                method_policy = policy_original
+            elif method_name == "Ours_optimal":
+                method_policy = policy_adjusted
+            else:
+                method_policy = policy
+            
+            transform = get_method_transform(method_name, method_policy)
         except Exception as e:
             print(f"ERROR creating transform for {method_name}: {e}")
             continue
@@ -616,7 +660,7 @@ def run_phase_d(
                 epochs=train_epochs,
                 device=device,
                 fold_idx=fold_idx,
-                policy=policy,
+                policy=method_policy,  # v5.4: Use method-specific policy
                 num_workers=num_workers,
                 early_stop_patience=early_stop_patience,
                 deterministic=deterministic,

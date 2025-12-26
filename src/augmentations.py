@@ -7,6 +7,7 @@ Implements:
 - Candidate Pool: 8 operations with magnitude [0,1] to physical parameter mapping
 - Probabilistic application: each operation can be applied with probability p
 - Mutual exclusion handling for conflicting operations
+- Combination probability adjustment for multi-op policies (v5.4)
 
 Reference: docs/research_plan_v5.md Section 2
 
@@ -14,6 +15,11 @@ Changelog (v4 → v5):
 - [NEW] ProbabilisticTransform: wrapper for stochastic application
 - [NEW] OP_SEARCH_SPACE: per-operation (m, p) search ranges
 - [CHANGED] build_transform_with_op: now accepts probability parameter
+
+Changelog (v5.4):
+- [NEW] OP_DESTRUCTIVENESS: per-operation destructiveness weights
+- [NEW] adjust_probabilities_for_combination: control total augmentation intensity
+- [CHANGED] RandomErasing p range expanded to [0.1, 0.5]
 """
 
 from typing import Callable, Dict, List, Optional, Tuple, Union
@@ -50,9 +56,115 @@ OP_SEARCH_SPACE: Dict[str, Dict[str, List[float]]] = {
     "GaussianBlur":      {"m": [0.0, 0.3], "p": [0.2, 0.6]},
     
     # Destructive operations - need lower probability
-    "RandomErasing":     {"m": [0.05, 0.3], "p": [0.1, 0.4]},
+    "RandomErasing":     {"m": [0.05, 0.3], "p": [0.1, 0.5]},  # v5.4: expanded from 0.4 to 0.5
     "RandomPerspective": {"m": [0.0, 0.3], "p": [0.1, 0.5]},
 }
+
+
+# =============================================================================
+# v5.4 NEW: Operation Destructiveness Weights
+# =============================================================================
+
+# Destructiveness weight for each operation (0=no destruction, 1=full destruction)
+# Used for adjusting probabilities when combining multiple operations.
+# Higher destructiveness → lower weight → more aggressive probability reduction.
+OP_DESTRUCTIVENESS: Dict[str, float] = {
+    "RandomErasing":      0.85,   # Direct pixel occlusion - highest destruction
+    "RandomPerspective":  0.80,   # Severe geometric distortion
+    "RandomResizedCrop":  0.65,   # May lose key regions
+    "RandomRotation":     0.40,   # Moderate geometric change
+    "GaussianBlur":       0.30,   # Mild blur, preserves structure
+    "RandomGrayscale":    0.30,   # Removes color but keeps structure
+    "GaussianNoise":      0.20,   # Light noise addition
+    "ColorJitter":        0.20,   # Mildest - just color variation
+}
+
+
+def adjust_probabilities_for_combination(
+    ops: List[Tuple[str, float, float]],
+    p_any_target: float = 0.5,
+) -> List[Tuple[str, float, float]]:
+    """Adjust operation probabilities to control total augmentation intensity.
+    
+    When combining multiple operations, each applied independently with probability p,
+    the overall augmentation intensity can become too strong. This function adjusts
+    individual probabilities to maintain a target "at least one augmentation" rate.
+    
+    Algorithm:
+    1. Define weight w_i = 1 - d_i (higher destructiveness → lower weight)
+    2. Scale probabilities: p'_i = clip(α × w_i × p_i, 0, 1)
+    3. Solve for α such that: 1 - ∏(1 - p'_i) ≈ p_any_target
+    
+    Args:
+        ops: List of (op_name, magnitude, probability) tuples.
+        p_any_target: Target probability that at least one augmentation is applied.
+                      Default 0.5 (50% of images get at least one augmentation).
+    
+    Returns:
+        Adjusted list of (op_name, magnitude, adjusted_probability) tuples.
+    
+    Example:
+        >>> policy = [("RandomErasing", 0.24, 0.34), ("GaussianNoise", 0.08, 0.76)]
+        >>> adjusted = adjust_probabilities_for_combination(policy, p_any_target=0.5)
+        >>> # RandomErasing (d=0.85) gets reduced more than GaussianNoise (d=0.20)
+    """
+    import numpy as np
+    
+    if len(ops) <= 1:
+        return ops  # Single operation doesn't need adjustment
+    
+    # Extract info
+    names = [op[0] for op in ops]
+    magnitudes = [op[1] for op in ops]
+    probs = np.array([op[2] for op in ops], dtype=np.float64)
+    
+    # Compute weights: w_i = 1 - d_i
+    weights = np.array([
+        1.0 - OP_DESTRUCTIVENESS.get(name, 0.5) 
+        for name in names
+    ], dtype=np.float64)
+    
+    # Define objective function
+    def compute_p_any(alpha: float) -> float:
+        """Compute actual p_any for given alpha."""
+        p_adjusted = np.clip(alpha * weights * probs, 0, 1)
+        p_none = np.prod(1 - p_adjusted)
+        return 1 - p_none
+    
+    # Binary search for optimal alpha
+    alpha_low, alpha_high = 0.01, 10.0
+    
+    # Check if target is achievable
+    p_any_max = compute_p_any(alpha_high)
+    p_any_min = compute_p_any(alpha_low)
+    
+    if p_any_target >= p_any_max:
+        alpha_opt = alpha_high
+    elif p_any_target <= p_any_min:
+        alpha_opt = alpha_low
+    else:
+        # Binary search
+        for _ in range(50):  # 50 iterations gives precision ~1e-15
+            alpha_mid = (alpha_low + alpha_high) / 2
+            p_any_mid = compute_p_any(alpha_mid)
+            
+            if p_any_mid < p_any_target:
+                alpha_low = alpha_mid
+            else:
+                alpha_high = alpha_mid
+        
+        alpha_opt = (alpha_low + alpha_high) / 2
+    
+    # Compute adjusted probabilities
+    p_adjusted = np.clip(alpha_opt * weights * probs, 0, 1)
+    
+    # Build result
+    result = [
+        (names[i], magnitudes[i], float(p_adjusted[i]))
+        for i in range(len(ops))
+    ]
+    
+    return result
 
 
 # =============================================================================
