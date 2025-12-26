@@ -67,6 +67,7 @@ from src.utils import (
     set_seed_deterministic,
     train_one_epoch,
     ensure_dir,
+    load_phase0_best_config,
 )
 
 
@@ -182,6 +183,8 @@ def train_single_config(
     deterministic: bool = True,
     save_checkpoint: bool = False,
     checkpoint_dir: Optional[Path] = None,
+    weight_decay: float = 1e-2,
+    label_smoothing: float = 0.1,
 ) -> Dict:
     """Train one configuration (policy) and return metrics.
     
@@ -295,15 +298,15 @@ def train_single_config(
         if use_cuda:
             model = model.to(memory_format=torch.channels_last)
         
-        # Loss function (with label smoothing for regularization)
-        criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+    # Loss function (with label smoothing for regularization)
+    criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
         
         # Optimizer and scheduler
         optimizer, scheduler = get_optimizer_and_scheduler(
             model=model,
             total_epochs=epochs,
             lr=0.1,
-            weight_decay=1e-2,
+        weight_decay=weight_decay,
             momentum=0.9,
             warmup_epochs=5,
         )
@@ -421,6 +424,8 @@ def train_with_multi_seed(
     epochs: int,
     device: torch.device,
     fold_idx: int = 0,
+    weight_decay: float = 1e-2,
+    label_smoothing: float = 0.1,
     **kwargs,
 ) -> Tuple[float, float, List[Dict]]:
     """Train configuration with multiple seeds and return mean/std accuracy.
@@ -446,6 +451,8 @@ def train_with_multi_seed(
             epochs=epochs,
             device=device,
             fold_idx=fold_idx,
+            weight_decay=weight_decay,
+            label_smoothing=label_smoothing,
             **kwargs,
         )
         results.append(result)
@@ -600,6 +607,8 @@ def _greedy_search_from_start(
     history_csv_path: Path,
     write_header_ref: List[bool],
     path_name: str = "Path",
+    weight_decay: float = 1e-2,
+    label_smoothing: float = 0.1,
 ) -> Tuple[List[Tuple[str, float, float]], float]:
     """Run greedy search from a single starting point.
     
@@ -653,6 +662,8 @@ def _greedy_search_from_start(
             deterministic=deterministic,
             save_checkpoint=save_checkpoints and not dry_run,
             checkpoint_dir=checkpoint_dir,
+            weight_decay=weight_decay,
+            label_smoothing=label_smoothing,
         )
         
         # Write results
@@ -713,6 +724,8 @@ def _greedy_search_from_start(
             deterministic=deterministic,
             save_checkpoint=save_checkpoints and not dry_run,
             checkpoint_dir=checkpoint_dir,
+            weight_decay=weight_decay,
+            label_smoothing=label_smoothing,
         )
         
         # Write results
@@ -771,6 +784,8 @@ def run_phase_c(
     phase_a_csv: Optional[Path] = None,
     n_start_points: int = 3,
     p_any_target: float = 0.5,
+    weight_decay: float = 1e-2,
+    label_smoothing: float = 0.1,
 ) -> List[Tuple[str, float, float]]:
     """Run Phase C greedy ensemble algorithm with multi-start search.
     
@@ -800,6 +815,11 @@ def run_phase_c(
         Final policy as list of (op_name, magnitude, probability) tuples.
     """
     device = get_device()
+    
+    # Load Phase 0 hyperparameters if available
+    phase0_cfg = load_phase0_best_config()
+    wd = phase0_cfg[0] if phase0_cfg else 1e-2
+    ls = phase0_cfg[1] if phase0_cfg else 0.1
     ensure_dir(output_dir)
     
     # Create checkpoint directory
@@ -902,6 +922,8 @@ def run_phase_c(
             history_csv_path=history_csv_path,
             write_header_ref=write_header_ref,
             path_name=path_name,
+            weight_decay=weight_decay,
+            label_smoothing=label_smoothing,
         )
         all_paths.append((policy, acc, path_name))
     
@@ -944,6 +966,8 @@ def run_baseline_for_phase_c(
     num_workers: int = 8,
     early_stop_patience: int = 60,
     deterministic: bool = True,
+    weight_decay: float = 1e-2,
+    label_smoothing: float = 0.1,
 ) -> float:
     """Run baseline for Phase C comparison (same epochs as A/B/D).
     
@@ -974,6 +998,8 @@ def run_baseline_for_phase_c(
         num_workers=num_workers,
         early_stop_patience=early_stop_patience,
         deterministic=deterministic,
+        weight_decay=weight_decay,
+        label_smoothing=label_smoothing,
     )
     
     if result["error"]:
@@ -1132,6 +1158,7 @@ def main() -> int:
     print(f"Start points: {args.n_start_points}")
     print(f"Phase A CSV: {args.phase_a_csv}")
     print(f"Deterministic: {deterministic}")
+    print(f"LR: 0.1, WD: {wd}, Momentum: 0.9, Warmup: 5 epochs, Label Smoothing: {ls}")
     if args.dry_run:
         print("MODE: DRY RUN")
     print("=" * 70)
@@ -1156,6 +1183,8 @@ def main() -> int:
                 num_workers=args.num_workers,
                 early_stop_patience=args.early_stop_patience,
                 deterministic=deterministic,
+                weight_decay=wd,
+                label_smoothing=ls,
             )
     
     print(f"Using baseline accuracy: {baseline_acc:.2f}%")
@@ -1177,6 +1206,8 @@ def main() -> int:
             phase_a_csv=Path(args.phase_a_csv),
             n_start_points=args.n_start_points,
             p_any_target=args.p_any_target,
+            weight_decay=wd,
+            label_smoothing=ls,
         )
         return 0
         
