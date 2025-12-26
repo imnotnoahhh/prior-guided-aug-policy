@@ -1,6 +1,6 @@
 # 复现指南（v5.5）
 
-- 硬件/驱动：CUDA 12.8.1、NVIDIA Driver 570.195.03、cuDNN 9.8.0.87（4 × A10）。
+- 硬件/驱动：CUDA 12.8、NVIDIA Driver 570.133.20、cuDNN 9.8.0.87（4 × A10）。
 - 环境：`conda env create -f environment.yml && conda activate pga`。如已创建，`conda env update -f environment.yml` 保持同步。
 - 数据：自动下载 CIFAR-100 至 `./data`，若离线，请预放置官方二进制文件。
 
