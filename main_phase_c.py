@@ -2,30 +2,30 @@
 """
 Phase C: Prior-Guided Greedy Ensemble Script.
 
+v5.4 CHANGED: Multi-start greedy search using both Phase A and Phase B top configs.
+
 Constructs the final augmentation policy by greedily adding operations
 from Phase B results, using 3-seed validation for robustness.
 
 Reference: docs/research_plan_v5.md Section 3 (Phase C)
 
-Algorithm:
-1. Load Phase B summary, sorted by mean_val_acc
-2. Initialize P = S0, Acc(P) = Baseline_800ep_acc
-3. For each candidate Op in ranked order:
-    a. Check mutual exclusion constraints
-    b. Train P + Op(m*, p*) × 3 seeds × 800 epochs
-    c. Compute mean_acc, std_acc
-    d. If mean_acc > Acc(P) + 0.1%: accept Op, update P
-    e. If len(P.ops) >= 3: stop
-4. Output final policy P_final
+Algorithm (v5.4 Multi-Start):
+1. Load Phase A results (best per op) and Phase B summary
+2. Create K starting points from top performers of Phase A + Phase B
+3. For each starting point:
+    a. Initialize P with the starting op
+    b. Greedy add remaining ops if improvement > threshold
+4. Select best final policy among all paths
+5. Output final policy P_final
 
 Usage:
-    # Full run (800 epochs, 3 seeds)
+    # Full run (200 epochs, 3 seeds)
     python main_phase_c.py
     
     # Dry run for testing
     python main_phase_c.py --epochs 2 --dry_run
     
-    # Run 800-epoch baseline first (required before Phase C)
+    # Run baseline first (required before Phase C)
     python main_phase_c.py --run_baseline_only
 """
 
@@ -69,6 +69,47 @@ from src.utils import (
     train_one_epoch,
     ensure_dir,
 )
+
+
+# =============================================================================
+# Phase A Results Loading (v5.4 NEW)
+# =============================================================================
+
+def load_phase_a_best_per_op(csv_path: Path) -> Dict[str, Tuple[float, float, float]]:
+    """Load Phase A results and get best config per operation.
+    
+    Args:
+        csv_path: Path to phase_a_results.csv
+        
+    Returns:
+        Dict mapping op_name to (magnitude, probability, val_acc)
+    """
+    if not csv_path.exists():
+        print(f"WARNING: Phase A results not found: {csv_path}")
+        return {}
+    
+    df = pd.read_csv(csv_path)
+    
+    if df.empty:
+        return {}
+    
+    # Filter out errors
+    df = df[df["error"].isna() | (df["error"] == "")]
+    
+    if df.empty:
+        return {}
+    
+    best_configs = {}
+    for op_name in df["op_name"].unique():
+        op_data = df[df["op_name"] == op_name]
+        best_row = op_data.loc[op_data["val_acc"].idxmax()]
+        best_configs[op_name] = (
+            float(best_row["magnitude"]),
+            float(best_row["probability"]),
+            float(best_row["val_acc"]),
+        )
+    
+    return best_configs
 
 
 # =============================================================================
@@ -263,7 +304,7 @@ def train_single_config(
             model=model,
             total_epochs=epochs,
             lr=0.1,
-            weight_decay=5e-3,
+            weight_decay=1e-2,
             momentum=0.9,
             warmup_epochs=5,
         )
@@ -526,86 +567,104 @@ def load_policy(json_path: Path) -> List[Tuple[str, float, float]]:
 
 
 # =============================================================================
-# Main Greedy Algorithm
+# Single-Path Greedy Search Helper
 # =============================================================================
 
-def run_phase_c(
-    phase_b_csv: Path,
-    baseline_800ep_acc: float,
-    output_dir: Path,
-    epochs: int = 800,
-    seeds: List[int] = [42, 123, 456],
-    fold_idx: int = 0,
-    max_ops: int = 3,
-    improvement_threshold: float = 0.1,
-    num_workers: int = 8,
-    early_stop_patience: int = 99999,
-    deterministic: bool = True,
-    dry_run: bool = False,
-    save_checkpoints: bool = True,
-) -> List[Tuple[str, float, float]]:
-    """Run Phase C greedy ensemble algorithm.
-    
-    v5.1: Added checkpoint saving for accepted policies.
+def _greedy_search_from_start(
+    starting_op: Optional[Tuple[str, float, float]],
+    candidates: Dict[str, Tuple[float, float, float]],
+    baseline_acc: float,
+    epochs: int,
+    seeds: List[int],
+    device: torch.device,
+    fold_idx: int,
+    max_ops: int,
+    improvement_threshold: float,
+    num_workers: int,
+    early_stop_patience: int,
+    deterministic: bool,
+    dry_run: bool,
+    save_checkpoints: bool,
+    checkpoint_dir: Path,
+    history_csv_path: Path,
+    write_header_ref: List[bool],
+    path_name: str = "Path",
+) -> Tuple[List[Tuple[str, float, float]], float]:
+    """Run greedy search from a single starting point.
     
     Args:
-        phase_b_csv: Path to Phase B summary CSV.
-        baseline_800ep_acc: Baseline accuracy at 800 epochs.
-        output_dir: Directory for output files.
-        epochs: Training epochs per configuration.
-        seeds: List of random seeds for multi-seed validation.
-        fold_idx: Which fold to use.
-        max_ops: Maximum number of operations to add.
-        improvement_threshold: Minimum improvement to accept an op (%).
-        num_workers: Data loading workers.
+        starting_op: Starting operation tuple (name, mag, prob) or None for baseline start.
+        candidates: Dict of op_name -> (magnitude, probability, acc) for all candidates.
+        baseline_acc: Baseline accuracy.
+        epochs: Training epochs.
+        seeds: Random seeds.
+        device: Device to train on.
+        fold_idx: Fold index.
+        max_ops: Maximum operations.
+        improvement_threshold: Minimum improvement threshold.
+        num_workers: Data loader workers.
         early_stop_patience: Early stopping patience.
-        deterministic: Enable deterministic CUDA mode.
-        dry_run: If True, run minimal epochs for testing.
-        save_checkpoints: If True, save checkpoints for accepted policies.
+        deterministic: Deterministic mode.
+        dry_run: Dry run mode.
+        save_checkpoints: Save checkpoints.
+        checkpoint_dir: Checkpoint directory.
+        history_csv_path: Path to history CSV.
+        write_header_ref: Mutable reference for write_header flag.
+        path_name: Name for logging.
         
     Returns:
-        Final policy as list of (op_name, magnitude, probability) tuples.
+        Tuple of (final_policy, final_accuracy).
     """
-    device = get_device()
-    ensure_dir(output_dir)
-    
-    # Create checkpoint directory
-    checkpoint_dir = output_dir / "checkpoints"
-    ensure_dir(checkpoint_dir)
-    
-    history_csv_path = output_dir / "phase_c_history.csv"
-    policy_json_path = output_dir / "phase_c_final_policy.json"
-    
-    # Load Phase B results
-    print("Loading Phase B results...")
-    phase_b_df = load_phase_b_summary(phase_b_csv)
-    best_configs = get_best_config_per_op(phase_b_df)
-    
-    print(f"Found {len(best_configs)} operations with best configs:")
-    for op_name, (mag, prob, acc) in sorted(best_configs.items(), key=lambda x: -x[1][2]):
-        print(f"  {op_name}: m={mag:.4f}, p={prob:.4f}, acc={acc:.2f}%")
+    print(f"\n{'#'*70}")
+    print(f"# {path_name}")
+    print(f"{'#'*70}")
     
     # Initialize policy
-    current_policy: List[Tuple[str, float, float]] = []
-    current_acc = baseline_800ep_acc
+    if starting_op is not None:
+        current_policy = [starting_op]
+        # Evaluate starting op with multi-seed
+        if dry_run:
+            train_epochs = min(2, epochs)
+            train_seeds = seeds[:1]
+        else:
+            train_epochs = epochs
+            train_seeds = seeds
+        
+        print(f"Evaluating starting op: {starting_op[0]}")
+        mean_acc, std_acc, results = train_with_multi_seed(
+            ops=current_policy,
+            seeds=train_seeds,
+            epochs=train_epochs,
+            device=device,
+            fold_idx=fold_idx,
+            num_workers=num_workers,
+            early_stop_patience=early_stop_patience,
+            deterministic=deterministic,
+            save_checkpoint=save_checkpoints and not dry_run,
+            checkpoint_dir=checkpoint_dir,
+        )
+        
+        # Write results
+        for result in results:
+            write_csv_row(history_csv_path, result, write_header_ref[0])
+            write_header_ref[0] = False
+        
+        current_acc = mean_acc
+        print(f"Starting point: {starting_op[0]} = {current_acc:.2f}%")
+    else:
+        current_policy = []
+        current_acc = baseline_acc
+        print(f"Starting from baseline: {current_acc:.2f}%")
     
-    print(f"\nInitial state: P = S0, Acc(P) = {current_acc:.2f}%")
-    print(f"Improvement threshold: +{improvement_threshold}%")
-    print(f"Max operations: {max_ops}")
-    print(f"Seeds: {seeds}")
-    print("-" * 70)
-    
-    # Check if CSV needs header
-    write_header = check_csv_needs_header(history_csv_path)
-    
-    # Sort candidates by Phase B accuracy (best first)
-    candidates = sorted(
-        best_configs.items(),
-        key=lambda x: -x[1][2]  # Sort by mean_val_acc descending
+    # Sort remaining candidates
+    remaining_candidates = sorted(
+        [(name, cfg) for name, cfg in candidates.items() 
+         if starting_op is None or name != starting_op[0]],
+        key=lambda x: -x[1][2]
     )
     
     # Greedy loop
-    for op_name, (magnitude, probability, phase_b_acc) in candidates:
+    for op_name, (magnitude, probability, phase_b_acc) in remaining_candidates:
         if len(current_policy) >= max_ops:
             print(f"\nReached max_ops limit ({max_ops}). Stopping.")
             break
@@ -620,9 +679,8 @@ def run_phase_c(
         proposed_policy = current_policy + [(op_name, magnitude, probability)]
         
         print(f"\n{'='*70}")
-        print(f"Trying to add: {op_name} (m={magnitude:.4f}, p={probability:.4f})")
+        print(f"[{path_name}] Trying to add: {op_name} (m={magnitude:.4f}, p={probability:.4f})")
         print(f"Current policy: {current_op_names if current_op_names else 'S0'}")
-        print(f"Proposed policy: {[op[0] for op in proposed_policy]}")
         print("-" * 70)
         
         # Train with multi-seed
@@ -646,16 +704,15 @@ def run_phase_c(
             checkpoint_dir=checkpoint_dir,
         )
         
-        # Write results to CSV
+        # Write results
         for result in results:
-            write_csv_row(history_csv_path, result, write_header)
-            write_header = False
+            write_csv_row(history_csv_path, result, write_header_ref[0])
+            write_header_ref[0] = False
         
         # Decision
         improvement = mean_acc - current_acc
         
         print(f"Results: mean_acc={mean_acc:.2f}% ± {std_acc:.2f}%")
-        print(f"Current Acc(P) = {current_acc:.2f}%")
         print(f"Improvement: {improvement:+.2f}% (threshold: +{improvement_threshold}%)")
         
         if improvement > improvement_threshold:
@@ -663,27 +720,192 @@ def run_phase_c(
             current_policy = proposed_policy
             current_acc = mean_acc
         else:
-            print(f"✗ REJECTED: {op_name} (improvement too small)")
+            print(f"✗ REJECTED: {op_name}")
+    
+    print(f"\n[{path_name}] Final: {[op[0] for op in current_policy]} = {current_acc:.2f}%")
+    return current_policy, current_acc
+
+
+# =============================================================================
+# Main Greedy Algorithm (v5.4 Multi-Start)
+# =============================================================================
+
+def run_phase_c(
+    phase_b_csv: Path,
+    baseline_800ep_acc: float,
+    output_dir: Path,
+    epochs: int = 800,
+    seeds: List[int] = [42, 123, 456],
+    fold_idx: int = 0,
+    max_ops: int = 3,
+    improvement_threshold: float = 0.1,
+    num_workers: int = 8,
+    early_stop_patience: int = 99999,
+    deterministic: bool = True,
+    dry_run: bool = False,
+    save_checkpoints: bool = True,
+    phase_a_csv: Optional[Path] = None,
+    n_start_points: int = 3,
+) -> List[Tuple[str, float, float]]:
+    """Run Phase C greedy ensemble algorithm with multi-start search.
+    
+    v5.4: Multi-start greedy search using Phase A and Phase B top configs.
+    v5.1: Added checkpoint saving for accepted policies.
+    
+    Args:
+        phase_b_csv: Path to Phase B summary CSV.
+        baseline_800ep_acc: Baseline accuracy at 800 epochs.
+        output_dir: Directory for output files.
+        epochs: Training epochs per configuration.
+        seeds: List of random seeds for multi-seed validation.
+        fold_idx: Which fold to use.
+        max_ops: Maximum number of operations to add.
+        improvement_threshold: Minimum improvement to accept an op (%).
+        num_workers: Data loading workers.
+        early_stop_patience: Early stopping patience.
+        deterministic: Enable deterministic CUDA mode.
+        dry_run: If True, run minimal epochs for testing.
+        save_checkpoints: If True, save checkpoints for accepted policies.
+        phase_a_csv: Path to Phase A results CSV for multi-start search.
+        n_start_points: Number of starting points to try (default 3).
+        
+    Returns:
+        Final policy as list of (op_name, magnitude, probability) tuples.
+    """
+    device = get_device()
+    ensure_dir(output_dir)
+    
+    # Create checkpoint directory
+    checkpoint_dir = output_dir / "checkpoints"
+    ensure_dir(checkpoint_dir)
+    
+    history_csv_path = output_dir / "phase_c_history.csv"
+    policy_json_path = output_dir / "phase_c_final_policy.json"
+    
+    # Load Phase B results
+    print("Loading Phase B results...")
+    phase_b_df = load_phase_b_summary(phase_b_csv)
+    phase_b_best = get_best_config_per_op(phase_b_df)
+    
+    print(f"Found {len(phase_b_best)} operations from Phase B:")
+    for op_name, (mag, prob, acc) in sorted(phase_b_best.items(), key=lambda x: -x[1][2]):
+        print(f"  {op_name}: m={mag:.4f}, p={prob:.4f}, acc={acc:.2f}%")
+    
+    # Load Phase A results (v5.4)
+    phase_a_best = {}
+    if phase_a_csv is not None and phase_a_csv.exists():
+        print("\nLoading Phase A results...")
+        phase_a_best = load_phase_a_best_per_op(phase_a_csv)
+        print(f"Found {len(phase_a_best)} operations from Phase A:")
+        for op_name, (mag, prob, acc) in sorted(phase_a_best.items(), key=lambda x: -x[1][2])[:5]:
+            print(f"  {op_name}: m={mag:.4f}, p={prob:.4f}, acc={acc:.2f}%")
+    
+    # Create unified candidate pool (prefer Phase B configs but include Phase A top performers)
+    all_candidates = dict(phase_b_best)  # Start with Phase B
+    for op_name, (mag, prob, acc) in phase_a_best.items():
+        if op_name not in all_candidates or acc > all_candidates[op_name][2]:
+            all_candidates[op_name] = (mag, prob, acc)
+    
+    print(f"\nUnified candidate pool: {len(all_candidates)} operations")
+    
+    # Determine starting points (v5.4 Multi-Start)
+    # Combine Phase A and Phase B top performers
+    phase_a_sorted = sorted(phase_a_best.items(), key=lambda x: -x[1][2])
+    phase_b_sorted = sorted(phase_b_best.items(), key=lambda x: -x[1][2])
+    
+    start_points: List[Optional[Tuple[str, float, float]]] = []
+    used_ops = set()
+    
+    # Interleave Phase A and Phase B top performers
+    a_idx, b_idx = 0, 0
+    while len(start_points) < n_start_points and (a_idx < len(phase_a_sorted) or b_idx < len(phase_b_sorted)):
+        # Add from Phase A
+        while a_idx < len(phase_a_sorted) and phase_a_sorted[a_idx][0] in used_ops:
+            a_idx += 1
+        if a_idx < len(phase_a_sorted) and len(start_points) < n_start_points:
+            op_name, (mag, prob, acc) = phase_a_sorted[a_idx]
+            start_points.append((op_name, mag, prob))
+            used_ops.add(op_name)
+            a_idx += 1
+        
+        # Add from Phase B
+        while b_idx < len(phase_b_sorted) and phase_b_sorted[b_idx][0] in used_ops:
+            b_idx += 1
+        if b_idx < len(phase_b_sorted) and len(start_points) < n_start_points:
+            op_name, (mag, prob, acc) = phase_b_sorted[b_idx]
+            start_points.append((op_name, mag, prob))
+            used_ops.add(op_name)
+            b_idx += 1
+    
+    print(f"\nMulti-start search with {len(start_points)} starting points:")
+    for i, sp in enumerate(start_points):
+        if sp is not None:
+            print(f"  Path {i+1}: Start with {sp[0]} (m={sp[1]:.4f}, p={sp[2]:.4f})")
+    
+    print(f"\nBaseline accuracy: {baseline_800ep_acc:.2f}%")
+    print(f"Improvement threshold: +{improvement_threshold}%")
+    print(f"Max operations: {max_ops}")
+    print(f"Seeds: {seeds}")
+    print("-" * 70)
+    
+    # Check if CSV needs header
+    write_header_ref = [check_csv_needs_header(history_csv_path)]
+    
+    # Run greedy search from each starting point
+    all_paths: List[Tuple[List[Tuple[str, float, float]], float, str]] = []
+    
+    for i, start_op in enumerate(start_points):
+        path_name = f"Path {i+1} ({start_op[0] if start_op else 'Baseline'})"
+        policy, acc = _greedy_search_from_start(
+            starting_op=start_op,
+            candidates=all_candidates,
+            baseline_acc=baseline_800ep_acc,
+            epochs=epochs,
+            seeds=seeds,
+            device=device,
+            fold_idx=fold_idx,
+            max_ops=max_ops,
+            improvement_threshold=improvement_threshold,
+            num_workers=num_workers,
+            early_stop_patience=early_stop_patience,
+            deterministic=deterministic,
+            dry_run=dry_run,
+            save_checkpoints=save_checkpoints,
+            checkpoint_dir=checkpoint_dir,
+            history_csv_path=history_csv_path,
+            write_header_ref=write_header_ref,
+            path_name=path_name,
+        )
+        all_paths.append((policy, acc, path_name))
+    
+    # Select best path
+    best_policy, best_acc, best_path_name = max(all_paths, key=lambda x: x[1])
     
     # Summary
     print("\n" + "=" * 70)
-    print("Phase C Complete")
+    print("Phase C Complete (Multi-Start Search)")
     print("=" * 70)
-    print(f"Final policy: {[op[0] for op in current_policy] if current_policy else 'S0'}")
-    print(f"Final accuracy: {current_acc:.2f}%")
-    print(f"Improvement over baseline: {current_acc - baseline_800ep_acc:+.2f}%")
+    print("\nAll paths:")
+    for policy, acc, name in all_paths:
+        marker = " ★ BEST" if acc == best_acc else ""
+        print(f"  {name}: {[op[0] for op in policy] if policy else 'S0'} = {acc:.2f}%{marker}")
+    
+    print(f"\nSelected: {best_path_name}")
+    print(f"Final policy: {[op[0] for op in best_policy] if best_policy else 'S0'}")
+    print(f"Final accuracy: {best_acc:.2f}%")
+    print(f"Improvement over baseline: {best_acc - baseline_800ep_acc:+.2f}%")
     print("-" * 70)
     print(f"History saved to: {history_csv_path}")
     
     # Save final policy
     save_policy(
-        policy=current_policy,
+        policy=best_policy,
         baseline_acc=baseline_800ep_acc,
-        final_acc=current_acc,
+        final_acc=best_acc,
         output_path=policy_json_path,
     )
     
-    return current_policy
+    return best_policy
 
 
 def run_800ep_baseline(
@@ -839,6 +1061,20 @@ def parse_args() -> argparse.Namespace:
         help="Only run 800-epoch baseline, then exit"
     )
     
+    parser.add_argument(
+        "--phase_a_csv",
+        type=str,
+        default="outputs/phase_a_results.csv",
+        help="Path to Phase A results CSV for multi-start search"
+    )
+    
+    parser.add_argument(
+        "--n_start_points",
+        type=int,
+        default=3,
+        help="Number of starting points for multi-start greedy search (default: 3)"
+    )
+    
     return parser.parse_args()
 
 
@@ -856,7 +1092,7 @@ def main() -> int:
     device = get_device()
     
     print("=" * 70)
-    print("Phase C: Prior-Guided Greedy Ensemble")
+    print("Phase C: Prior-Guided Greedy Ensemble (v5.4 Multi-Start)")
     print("=" * 70)
     print(f"Device: {device}")
     print(f"Epochs: {args.epochs}")
@@ -864,6 +1100,8 @@ def main() -> int:
     print(f"Fold: {args.fold_idx}")
     print(f"Max ops: {args.max_ops}")
     print(f"Improvement threshold: {args.improvement_threshold}%")
+    print(f"Start points: {args.n_start_points}")
+    print(f"Phase A CSV: {args.phase_a_csv}")
     print(f"Deterministic: {deterministic}")
     if args.dry_run:
         print("MODE: DRY RUN")
@@ -925,6 +1163,8 @@ def main() -> int:
             early_stop_patience=args.early_stop_patience,
             deterministic=deterministic,
             dry_run=args.dry_run,
+            phase_a_csv=Path(args.phase_a_csv),
+            n_start_points=args.n_start_points,
         )
         return 0
         

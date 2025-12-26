@@ -63,7 +63,7 @@ def run_baseline(
     print(f"Fold: {fold_idx}")
     print(f"Seed: {seed}")
     print(f"Deterministic: {deterministic}")
-    print(f"LR: 0.1, WD: 5e-3, Momentum: 0.9, Warmup: 5 epochs, Label Smoothing: 0.1")
+    print(f"LR: 0.1, WD: 1e-2, Momentum: 0.9, Warmup: 5 epochs, Label Smoothing: 0.1")
     print(f"Min epochs: {min_epochs}")
     print(f"Early stop patience: {early_stop_patience}")
     print(f"Output dir: outputs")
@@ -128,7 +128,7 @@ def run_baseline(
         model=model,
         total_epochs=epochs,
         lr=0.1,
-        weight_decay=5e-3,
+        weight_decay=1e-2,
         momentum=0.9,
         warmup_epochs=5,
     )

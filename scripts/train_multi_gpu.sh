@@ -244,6 +244,7 @@ START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${SINGLE_GPU} python main_phase_c.py \
     --output_dir "${OUTPUT_DIR}" \
+    --phase_a_csv "${OUTPUT_DIR}/phase_a_results.csv" \
     2>&1 | tee "${LOG_DIR}/phase_c_${TIMESTAMP}.log"
 
 END_TIME=$(date +%s)
