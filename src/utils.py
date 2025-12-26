@@ -14,7 +14,8 @@ Reference: docs/research_plan_v4.md Section 5
 
 import random
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
+import pandas as pd
 
 import numpy as np
 import torch
@@ -480,6 +481,38 @@ def ensure_dir(path: Path) -> Path:
     path = Path(path)
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+# =============================================================================
+# Phase 0 Hyperparameter Loading
+# =============================================================================
+
+def load_phase0_best_config(
+    path: Union[str, Path] = "outputs/phase0_summary.csv",
+) -> Optional[Tuple[float, float]]:
+    """Load best (weight_decay, label_smoothing) from Phase 0 summary.
+    
+    Prefers non-underfitting rows if available, otherwise takes top by mean_val_acc.
+    
+    Args:
+        path: Path to phase0_summary.csv
+    
+    Returns:
+        Tuple (weight_decay, label_smoothing) or None if file missing/unreadable.
+    """
+    path = Path(path)
+    if not path.exists():
+        return None
+    try:
+        df = pd.read_csv(path)
+        if df.empty or "mean_val_acc" not in df.columns:
+            return None
+        df = df.sort_values("mean_val_acc", ascending=False)
+        non_underfit = df[df.get("any_underfitting", False) == False]
+        row = non_underfit.iloc[0] if len(non_underfit) > 0 else df.iloc[0]
+        return float(row["weight_decay"]), float(row["label_smoothing"])
+    except Exception:
+        return None
 
 
 # =============================================================================

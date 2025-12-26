@@ -65,6 +65,7 @@ from src.utils import (
     set_seed_deterministic,
     train_one_epoch,
     ensure_dir,
+    load_phase0_best_config,
 )
 
 
@@ -138,6 +139,8 @@ def train_single_config(
     min_epochs: int = 60,
     seed: int = 42,
     deterministic: bool = True,
+    weight_decay: float = 1e-2,
+    label_smoothing: float = 0.1,
 ) -> Dict:
     """Train one configuration and return metrics.
     
@@ -245,14 +248,14 @@ def train_single_config(
         model = model.to(memory_format=torch.channels_last)
     
     # Loss function (with label smoothing for regularization)
-    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+    criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
     
     # Optimizer and scheduler
     optimizer, scheduler = get_optimizer_and_scheduler(
         model=model,
         total_epochs=epochs,
         lr=0.1,
-        weight_decay=1e-2,
+        weight_decay=weight_decay,
         momentum=0.9,
         warmup_epochs=5,
     )
@@ -509,6 +512,11 @@ def main() -> int:
     set_seed_deterministic(args.seed, deterministic=True)
     device = get_device()
     
+    # Load Phase 0 hyperparameters if available
+    phase0_cfg = load_phase0_best_config()
+    wd = phase0_cfg[0] if phase0_cfg else 1e-2
+    ls = phase0_cfg[1] if phase0_cfg else 0.1
+    
     print("=" * 70)
     print("Phase A: Augmentation Screening")
     print("=" * 70)
@@ -518,7 +526,7 @@ def main() -> int:
     print(f"Fold: {args.fold_idx}")
     print(f"Seed: {args.seed}")
     print(f"Deterministic: True")
-    print(f"LR: 0.1, WD: 1e-2, Momentum: 0.9, Warmup: 5 epochs, Label Smoothing: 0.1")
+    print(f"LR: 0.1, WD: {wd}, Momentum: 0.9, Warmup: 5 epochs, Label Smoothing: {ls}")
     print(f"Early stopping: min_epochs={args.min_epochs}, patience={args.early_stop_patience}, monitor=val_acc")
     print(f"Output dir: {args.output_dir}")
     print("-" * 70)
@@ -605,6 +613,8 @@ def main() -> int:
                 early_stop_patience=args.early_stop_patience,
                 min_epochs=args.min_epochs,
                 seed=args.seed,
+                weight_decay=wd,
+                label_smoothing=ls,
             )
             success_count += 1
             
@@ -659,5 +669,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
-

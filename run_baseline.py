@@ -35,6 +35,7 @@ from src.utils import (
     evaluate,
     get_optimizer_and_scheduler,
     EarlyStopping,
+    load_phase0_best_config,
 )
 
 
@@ -50,6 +51,11 @@ def run_baseline(
 ):
     """Run S0 Baseline with same settings as Phase A."""
     
+    # Load Phase 0 recommended hyperparameters if available
+    phase0_cfg = load_phase0_best_config()
+    wd = phase0_cfg[0] if phase0_cfg else 1e-2
+    ls = phase0_cfg[1] if phase0_cfg else 0.1
+    
     # Set seed with deterministic mode for reproducibility
     set_seed_deterministic(seed, deterministic=deterministic)
     device = get_device()
@@ -63,7 +69,7 @@ def run_baseline(
     print(f"Fold: {fold_idx}")
     print(f"Seed: {seed}")
     print(f"Deterministic: {deterministic}")
-    print(f"LR: 0.1, WD: 1e-2, Momentum: 0.9, Warmup: 5 epochs, Label Smoothing: 0.1")
+    print(f"LR: 0.1, WD: {wd}, Momentum: 0.9, Warmup: 5 epochs, Label Smoothing: {ls}")
     print(f"Min epochs: {min_epochs}")
     print(f"Early stop patience: {early_stop_patience}")
     print(f"Output dir: outputs")
@@ -121,14 +127,14 @@ def run_baseline(
         model = model.to(memory_format=torch.channels_last)
     
     # Loss function (with label smoothing for regularization)
-    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+    criterion = nn.CrossEntropyLoss(label_smoothing=ls)
     
     # Optimizer and scheduler
     optimizer, scheduler = get_optimizer_and_scheduler(
         model=model,
         total_epochs=epochs,
         lr=0.1,
-        weight_decay=1e-2,
+        weight_decay=wd,
         momentum=0.9,
         warmup_epochs=5,
     )

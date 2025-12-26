@@ -349,30 +349,36 @@ def run_calibration(args):
         any_underfitting=('is_underfitting', 'any'),
     ).reset_index()
     
-    summary = summary.round(2)
+    # Sort before rounding to preserve true ordering
     summary = summary.sort_values('mean_val_acc', ascending=False)
     
-    # Save summary
+    # Save full precision summary
     summary_path = output_dir / "phase0_summary.csv"
-    summary.to_csv(summary_path, index=False)
+    summary.to_csv(summary_path, index=False, float_format="%.6f")
+    
+    # Pretty display: keep wd/ls with higher precision, metrics rounded
+    display_summary = summary.copy()
+    display_summary["weight_decay"] = display_summary["weight_decay"].map(lambda x: f"{x:.6f}")
+    display_summary["label_smoothing"] = display_summary["label_smoothing"].map(lambda x: f"{x:.4f}")
+    for col in ["mean_val_acc", "std_val_acc", "mean_train_acc", "mean_gap"]:
+        display_summary[col] = display_summary[col].round(2)
     
     print("\nResults (sorted by mean_val_acc):")
-    print(summary.to_string(index=False))
+    print(display_summary.to_string(index=False))
     
-    # Recommend best config
-    # Filter out underfitting configs
+    # Recommend best config (prefer non-underfitting if available)
     valid = summary[~summary['any_underfitting']]
-    if len(valid) > 0:
-        best = valid.iloc[0]
-        print(f"\n{'='*70}")
-        print(f"RECOMMENDED CONFIG:")
-        print(f"  weight_decay = {best['weight_decay']}")
-        print(f"  label_smoothing = {best['label_smoothing']}")
-        print(f"  mean_val_acc = {best['mean_val_acc']:.2f}% ± {best['std_val_acc']:.2f}%")
-        print(f"  train_val_gap = {best['mean_gap']:.1f}%")
-        print(f"{'='*70}")
-    else:
+    best = valid.iloc[0] if len(valid) > 0 else summary.iloc[0]
+    if len(valid) == 0:
         print("\nWARNING: All configs show underfitting. Consider reducing regularization.")
+    
+    print(f"\n{'='*70}")
+    print(f"RECOMMENDED CONFIG:")
+    print(f"  weight_decay = {best['weight_decay']}")
+    print(f"  label_smoothing = {best['label_smoothing']}")
+    print(f"  mean_val_acc = {best['mean_val_acc']:.2f}% ± {best['std_val_acc']:.2f}%")
+    print(f"  train_val_gap = {best['mean_gap']:.1f}%")
+    print(f"{'='*70}")
     
     print(f"\nRaw results: {csv_path}")
     print(f"Summary: {summary_path}")

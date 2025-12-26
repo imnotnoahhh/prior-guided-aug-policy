@@ -69,6 +69,7 @@ from src.utils import (
     set_seed_deterministic,
     train_one_epoch,
     ensure_dir,
+    load_phase0_best_config,
 )
 
 
@@ -196,6 +197,8 @@ def train_to_epoch(
     num_workers: int = 8,
     seed: int = 42,
     deterministic: bool = True,
+    weight_decay: float = 1e-2,
+    label_smoothing: float = 0.1,
 ) -> Tuple[Dict, Dict]:
     """Train a configuration to a target epoch, optionally resuming from checkpoint.
     
@@ -280,7 +283,7 @@ def train_to_epoch(
     if use_cuda:
         model = model.to(memory_format=torch.channels_last)
     
-    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+    criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
     
     # Create optimizer and scheduler for FULL training duration
     # (scheduler needs to know total epochs for proper cosine annealing)
@@ -288,7 +291,7 @@ def train_to_epoch(
         model=model,
         total_epochs=200,  # Fixed max epochs for consistent LR schedule
         lr=0.1,
-        weight_decay=1e-2,
+        weight_decay=weight_decay,
         momentum=0.9,
         warmup_epochs=5,
     )
@@ -481,6 +484,8 @@ def run_phase_b_asha(
     ops_filter: Optional[List[str]] = None,
     dry_run: bool = False,
     final_rung_seeds: List[int] = [42, 123, 456],
+    weight_decay: float = 1e-2,
+    label_smoothing: float = 0.1,
 ) -> Path:
     """Run Phase B with ASHA scheduler.
     
@@ -617,6 +622,8 @@ def run_phase_b_asha(
                             num_workers=num_workers,
                             seed=eval_seed,
                             deterministic=deterministic,
+                            weight_decay=weight_decay,
+                            label_smoothing=label_smoothing,
                         )
                         seed_results.append(result)
                         
@@ -641,6 +648,8 @@ def run_phase_b_asha(
                         num_workers=num_workers,
                         seed=seed,
                         deterministic=deterministic,
+                        weight_decay=weight_decay,
+                        label_smoothing=label_smoothing,
                     )
                     
                     # Store result
@@ -800,6 +809,11 @@ def main() -> int:
     deterministic = not args.no_deterministic
     device = get_device()
     
+    # Load Phase 0 hyperparameters if available
+    phase0_cfg = load_phase0_best_config()
+    wd = phase0_cfg[0] if phase0_cfg else 1e-2
+    ls = phase0_cfg[1] if phase0_cfg else 0.1
+    
     print("=" * 70)
     print("Phase B: ASHA Augmentation Tuning (v5.4)")
     print("=" * 70)
@@ -812,6 +826,7 @@ def main() -> int:
     print(f"Batch size: 128")
     print(f"Fold: {args.fold_idx}")
     print(f"Deterministic: {deterministic}")
+    print(f"LR: 0.1, WD: {wd}, Momentum: 0.9, Warmup: 5 epochs, Label Smoothing: {ls}")
     print("-" * 70)
     print(f"Phase A CSV: {args.phase_a_csv}")
     print(f"Baseline CSV: {args.baseline_csv}")
@@ -836,6 +851,8 @@ def main() -> int:
             ops_filter=ops_filter,
             dry_run=args.dry_run,
             final_rung_seeds=final_rung_seeds,
+            weight_decay=wd,
+            label_smoothing=ls,
         )
         return 0
         

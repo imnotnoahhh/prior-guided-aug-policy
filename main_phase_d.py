@@ -71,6 +71,7 @@ from src.utils import (
     set_seed_deterministic,
     train_one_epoch,
     ensure_dir,
+    load_phase0_best_config,
 )
 
 
@@ -336,14 +337,14 @@ def train_single_config(
             model = model.to(memory_format=torch.channels_last)
         
         # Loss function (with label smoothing for regularization)
-        criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+        criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
         
         # Optimizer and scheduler
         optimizer, scheduler = get_optimizer_and_scheduler(
             model=model,
             total_epochs=epochs,
             lr=0.1,
-            weight_decay=1e-2,
+            weight_decay=weight_decay,
             momentum=0.9,
             warmup_epochs=5,
         )
@@ -559,6 +560,8 @@ def run_phase_d(
     early_stop_patience: int = 60,
     deterministic: bool = True,
     dry_run: bool = False,
+    weight_decay: float = 1e-2,
+    label_smoothing: float = 0.1,
 ) -> pd.DataFrame:
     """Run Phase D benchmark comparison.
     
@@ -852,6 +855,11 @@ def main() -> int:
     output_dir = Path(args.output_dir)
     deterministic = not args.no_deterministic
     
+    # Load Phase 0 hyperparameters if available
+    phase0_cfg = load_phase0_best_config()
+    wd = phase0_cfg[0] if phase0_cfg else 1e-2
+    ls = phase0_cfg[1] if phase0_cfg else 0.1
+    
     # Parse methods
     methods = None
     if args.methods:
@@ -885,6 +893,7 @@ def main() -> int:
     print(f"Epochs: {args.epochs}")
     print(f"Seed: {args.seed}")
     print(f"Deterministic: {deterministic}")
+    print(f"LR: 0.1, WD: {wd}, Momentum: 0.9, Warmup: 5 epochs, Label Smoothing: {ls}")
     if args.dry_run:
         print("MODE: DRY RUN")
     print("=" * 70)
@@ -905,6 +914,8 @@ def main() -> int:
             early_stop_patience=args.early_stop_patience,
             deterministic=deterministic,
             dry_run=args.dry_run,
+            weight_decay=wd,
+            label_smoothing=ls,
         )
         return 0
         
