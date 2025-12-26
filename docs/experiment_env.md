@@ -2,6 +2,8 @@
 
 ## 1. 服务器配置
 
+> 快捷运行：推荐使用 `bash scripts/train_single_gpu.sh`（单卡串行全流程）。下文保留逐阶段命令与多卡并行/合并说明。
+
 ### Phase A/B/C/D + Baseline
 
 | 项目 | 配置 |
@@ -17,9 +19,10 @@
 | 项目 | 版本 |
 |------|------|
 | **操作系统** | Ubuntu 24.04 64-bit |
-| **CUDA** | 12.8 |
-| **NVIDIA Driver** | 570.113.20 |
+| **CUDA** | 12.8.1 |
+| **NVIDIA Driver** | 570.195.03 |
 | **Python** | 3.14.2 (conda: pga) |
+| **cuDNN** | 9.8.0.87 |
 
 ---
 
@@ -88,7 +91,7 @@ python run_baseline.py \
 ### 3.1 单 GPU 运行
 
 ```bash
-# 冒烟测试
+# 冒烟测试（1ep）
 bash scripts/smoke_test_phase_a.sh
 
 # 后台运行 (使用 GPU 0)
@@ -175,7 +178,7 @@ python main_phase_a.py \
 ### 4.1 单 GPU 运行
 
 ```bash
-# 冒烟测试
+# 冒烟测试（1ep）
 bash scripts/smoke_test_phase_b.sh
 
 # 完整 ASHA 运行 (~2-4 小时)
@@ -232,7 +235,7 @@ print(summary.head(15).to_string(index=False))
 
 ```bash
 python main_phase_b.py \
-    --rungs 30,80,200 \           # 检查点 epochs (每轮淘汰)
+    --rungs 40,100,200 \         # 检查点 epochs (每轮淘汰)
     --n_samples 30 \              # 每个 op 的 Sobol 采样数
     --reduction_factor 2 \        # 每轮保留 top 1/2
     --seed 42 \                   # Sobol 采样种子
@@ -245,9 +248,9 @@ python main_phase_b.py \
 
 > **ASHA 工作原理**:
 > 1. Sobol 采样 30 个 (m, p) 点/op
-> 2. Rung 1: 全部训练到 30 epochs，保留 top 1/3
-> 3. Rung 2: 存活者续训到 80 epochs，再保留 top 1/3
-> 4. Rung 3: 最终存活者训到 200 epochs
+> 2. Rung 1: 全部训练到 40 epochs，保留 top 1/2
+> 3. Rung 2: 存活者续训到 100 epochs，再保留 top 1/2
+> 4. Rung 3: 最终存活者训到 200 epochs（final rung 多 seed）
 
 ### 输入文件
 
@@ -310,7 +313,7 @@ python main_phase_c.py \
     --phase_b_csv outputs/phase_b_tuning_summary.csv \
     --baseline_acc 37.0  # 可选，手动指定 Baseline 准确率 \
     --max_ops 3 \
-    --improvement_threshold 0.1 \
+    --improvement_threshold 0.2 \
     --p_any_target 0.5 \
     --num_workers 8
 ```
@@ -318,6 +321,7 @@ python main_phase_c.py \
 > **v5.4 变更**:
 > - Phase C 统一使用 200 epochs，与 Phase A/B 保持一致的训练预算，确保公平对比。
 > - 新增 `--p_any_target` 参数，控制组合策略的总体增广强度（默认 0.5 = 50% 样本被增广）。
+> - 接受阈值默认 +0.2% 且需要多数 seeds 提升。
 
 ### 5.4 输入文件
 
@@ -344,7 +348,7 @@ Phase C 使用贪心算法构建最终策略：
 3. 对每个候选 Op：
    - 检查互斥约束（如 RandomRotation 和 RandomPerspective 互斥）
    - 训练 P + Op × 3 seeds × 200 epochs
-   - 如果 mean_acc > Acc(P) + 0.1%，则接受该 Op
+   - 如果 mean_acc > Acc(P) + 0.2%，且多数 seeds 提升，则接受该 Op
 4. 最多添加 3 个额外操作
 5. 输出最终策略 P_final
 
@@ -391,7 +395,7 @@ Phase C 使用贪心算法构建最终策略：
 
 ## 6. Phase D SOTA 对比实验
 
-> **GPU 说明**: Phase D 在 5 个 Folds 上运行 5 种方法，共 25 次训练，每次 200 epochs（与 A/B/C 一致）。
+> **GPU 说明**: Phase D 在 5 个 Folds 上运行 7 种方法，共 35 次训练，每次 200 epochs（与 A/B/C 一致）。
 
 ### 6.1 前置条件
 

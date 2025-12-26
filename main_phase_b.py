@@ -718,15 +718,15 @@ Examples:
     
     parser.add_argument(
         "--output_dir", type=str, default="outputs",
-        help="Output directory (default: outputs)"
+        help="Output directory for raw/summary CSV and checkpoints (default: outputs)"
     )
     parser.add_argument(
         "--phase_a_csv", type=str, default="outputs/phase_a_results.csv",
-        help="Path to Phase A results CSV"
+        help="Path to Phase A results CSV (required input)"
     )
     parser.add_argument(
         "--baseline_csv", type=str, default="outputs/baseline_result.csv",
-        help="Path to baseline results CSV"
+        help="Path to baseline results CSV (required input)"
     )
     
     # ASHA parameters

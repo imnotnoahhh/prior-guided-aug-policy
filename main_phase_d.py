@@ -781,21 +781,21 @@ def parse_args() -> argparse.Namespace:
         "--output_dir",
         type=str,
         default="outputs",
-        help="Output directory (default: outputs)"
+        help="Output directory for raw/summary CSV and checkpoints (default: outputs)"
     )
     
     parser.add_argument(
         "--policy_json",
         type=str,
         default=None,
-        help="Path to Phase C policy JSON (default: outputs/phase_c_final_policy.json)"
+        help="Path to Phase C policy JSON (default: outputs/phase_c_final_policy.json; required for Ours_* methods)"
     )
     
     parser.add_argument(
         "--phase_b_csv",
         type=str,
         default=None,
-        help="Path to Phase B summary CSV for Best_SingleOp (default: outputs/phase_b_tuning_summary.csv)"
+        help="Path to Phase B summary CSV for Best_SingleOp (default: outputs/phase_b_tuning_summary.csv; required if Best_SingleOp enabled)"
     )
     
     parser.add_argument(

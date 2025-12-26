@@ -25,8 +25,6 @@ Usage:
     # Dry run for testing
     python main_phase_c.py --epochs 2 --dry_run
     
-    # Run baseline first (required before Phase C)
-    python main_phase_c.py --run_baseline_only
 """
 
 import argparse
@@ -318,7 +316,7 @@ def train_single_config(
         # Early stopping (v5.1: disabled for Phase C to ensure full training)
         # Phase C uses same early stopping as Phase A/B for fair comparison
         early_stopper = EarlyStopping(
-            patience=early_stop_patience,  # Default 80 for Phase C
+            patience=early_stop_patience,  # Default effectively disables early stop
             mode="max",  # Monitor val_acc (higher is better)
             min_epochs=60,  # At least 60 epochs before considering stop
             min_delta=0.2,
@@ -758,9 +756,9 @@ def _greedy_search_from_start(
 
 def run_phase_c(
     phase_b_csv: Path,
-    baseline_800ep_acc: float,
+    baseline_acc: float,
     output_dir: Path,
-    epochs: int = 800,
+    epochs: int = 200,
     seeds: List[int] = [42, 123, 456],
     fold_idx: int = 0,
     max_ops: int = 3,
@@ -782,7 +780,7 @@ def run_phase_c(
     
     Args:
         phase_b_csv: Path to Phase B summary CSV.
-        baseline_800ep_acc: Baseline accuracy at 800 epochs.
+        baseline_acc: Baseline accuracy at 200 epochs.
         output_dir: Directory for output files.
         epochs: Training epochs per configuration.
         seeds: List of random seeds for multi-seed validation.
@@ -871,7 +869,7 @@ def run_phase_c(
         if sp is not None:
             print(f"  Path {i+1}: Start with {sp[0]} (m={sp[1]:.4f}, p={sp[2]:.4f})")
     
-    print(f"\nBaseline accuracy: {baseline_800ep_acc:.2f}%")
+    print(f"\nBaseline accuracy: {baseline_acc:.2f}%")
     print(f"Improvement threshold: +{improvement_threshold}%")
     print(f"Max operations: {max_ops}")
     print(f"Seeds: {seeds}")
@@ -888,7 +886,7 @@ def run_phase_c(
         policy, acc = _greedy_search_from_start(
             starting_op=start_op,
             candidates=all_candidates,
-            baseline_acc=baseline_800ep_acc,
+            baseline_acc=baseline_acc,
             epochs=epochs,
             seeds=seeds,
             device=device,
@@ -922,14 +920,14 @@ def run_phase_c(
     print(f"\nSelected: {best_path_name}")
     print(f"Final policy: {[op[0] for op in best_policy] if best_policy else 'S0'}")
     print(f"Final accuracy: {best_acc:.2f}%")
-    print(f"Improvement over baseline: {best_acc - baseline_800ep_acc:+.2f}%")
+    print(f"Improvement over baseline: {best_acc - baseline_acc:+.2f}%")
     print("-" * 70)
     print(f"History saved to: {history_csv_path}")
     
     # Save final policy (includes original and adjusted probabilities)
     save_policy(
         policy=best_policy,
-        baseline_acc=baseline_800ep_acc,
+        baseline_acc=baseline_acc,
         final_acc=best_acc,
         output_path=policy_json_path,
         p_any_target=p_any_target,
@@ -938,20 +936,20 @@ def run_phase_c(
     return best_policy
 
 
-def run_800ep_baseline(
+def run_baseline_for_phase_c(
     output_dir: Path,
     epochs: int = 200,
     seed: int = 42,
     fold_idx: int = 0,
     num_workers: int = 8,
-    early_stop_patience: int = 80,
+    early_stop_patience: int = 60,
     deterministic: bool = True,
 ) -> float:
-    """Run baseline for Phase C comparison (now uses same epochs as A/B).
+    """Run baseline for Phase C comparison (same epochs as A/B/D).
     
     Args:
         output_dir: Directory for output files.
-        epochs: Number of epochs (default 800).
+        epochs: Number of epochs (default 200).
         seed: Random seed.
         fold_idx: Which fold to use.
         num_workers: Data loading workers.
@@ -1028,21 +1026,21 @@ def parse_args() -> argparse.Namespace:
         "--output_dir",
         type=str,
         default="outputs",
-        help="Output directory (default: outputs)"
+        help="Output directory for history/policy/checkpoints (default: outputs)"
     )
     
     parser.add_argument(
         "--phase_b_csv",
         type=str,
         default="outputs/phase_b_tuning_summary.csv",
-        help="Path to Phase B summary CSV"
+        help="Path to Phase B summary CSV (required input)"
     )
     
     parser.add_argument(
         "--baseline_acc",
         type=float,
         default=None,
-        help="800-epoch baseline accuracy (if not provided, will check baseline_800ep_result.csv)"
+        help="Baseline accuracy for comparison (if not provided, will load outputs/baseline_result.csv or run baseline)"
     )
     
     parser.add_argument(
@@ -1093,16 +1091,10 @@ def parse_args() -> argparse.Namespace:
     )
     
     parser.add_argument(
-        "--run_baseline_only",
-        action="store_true",
-        help="Only run 800-epoch baseline, then exit"
-    )
-    
-    parser.add_argument(
         "--phase_a_csv",
         type=str,
         default="outputs/phase_a_results.csv",
-        help="Path to Phase A results CSV for multi-start search"
+        help="Path to Phase A results CSV for multi-start search (optional, improves diversity)"
     )
     
     parser.add_argument(
@@ -1144,24 +1136,6 @@ def main() -> int:
         print("MODE: DRY RUN")
     print("=" * 70)
     
-    # Run baseline only mode
-    if args.run_baseline_only:
-        try:
-            run_800ep_baseline(
-                output_dir=output_dir,
-                epochs=args.epochs,
-                seed=seeds[0],
-                fold_idx=args.fold_idx,
-                num_workers=args.num_workers,
-                early_stop_patience=args.early_stop_patience,
-                deterministic=deterministic,
-            )
-            return 0
-        except Exception as e:
-            print(f"\nFATAL ERROR: {e}")
-            traceback.print_exc()
-            return 1
-    
     # Get baseline accuracy
     baseline_acc = args.baseline_acc
     if baseline_acc is None:
@@ -1174,7 +1148,7 @@ def main() -> int:
         else:
             # Fallback: run baseline first
             print("No baseline found. Running baseline first...")
-            baseline_acc = run_800ep_baseline(
+            baseline_acc = run_baseline_for_phase_c(
                 output_dir=output_dir,
                 epochs=args.epochs if not args.dry_run else 2,
                 seed=seeds[0],
@@ -1189,7 +1163,7 @@ def main() -> int:
     try:
         run_phase_c(
             phase_b_csv=Path(args.phase_b_csv),
-            baseline_800ep_acc=baseline_acc,
+            baseline_acc=baseline_acc,
             output_dir=output_dir,
             epochs=args.epochs,
             seeds=seeds,
@@ -1214,4 +1188,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
