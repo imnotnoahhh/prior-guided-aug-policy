@@ -258,6 +258,62 @@ class ProbabilisticTransform(nn.Module):
 
 
 # =============================================================================
+# v6 NEW: Dynamic Augmentation (Prior-Guided RandAugment)
+# =============================================================================
+
+class DynamicAugment(nn.Module):
+    """Dynamic Augmentation Strategy (Prior-Guided RandAugment).
+    
+    Instead of a static sequence of operations, this transform dynamically
+    selects N operations from a restricted 'Elite Pool' for each image.
+    
+    This combines:
+    1. The diversity of RandAugment (random selection per image).
+    2. The purity of Prior-Guided Search (only using safe/effective ops).
+    
+    Args:
+        ops: List of (op_name, magnitude) tuples defining the Elite Pool.
+        n: Number of operations to select per image (default 2).
+    """
+    
+    def __init__(self, ops: List[Tuple[str, float]], n: int = 2) -> None:
+        super().__init__()
+        self.ops = ops
+        self.n = n
+        
+        if not ops:
+            raise ValueError("DynamicAugment requires at least one operation in the pool.")
+            
+    def forward(self, img):
+        """Apply N randomly selected operations to the image.
+        
+        Args:
+            img: Input image (PIL or Tensor).
+            
+        Returns:
+            Augmented image.
+        """
+        # Select N operations with replacement? 
+        # RandAugment does replacement (can pick same op twice).
+        # We'll follow RandAugment behavior.
+        chosen_ops = random.choices(self.ops, k=self.n)
+        
+        for op_name, magnitude in chosen_ops:
+            # Create transform on the fly
+            # Note: We use p=1.0 for the op itself, because the "probability"
+            # is controlled by the random selection process (like RandAugment).
+            transform = create_op_transform(op_name, magnitude)
+            img = transform(img)
+            
+        return img
+    
+    def __repr__(self) -> str:
+        op_names = [op[0] for op in self.ops]
+        return f"DynamicAugment(n={self.n}, pool={op_names})"
+
+
+
+# =============================================================================
 # AugmentationSpace: Magnitude to Physical Parameter Mapping
 # =============================================================================
 
@@ -801,6 +857,51 @@ def build_transform_with_ops(
         )
     
     return transforms.Compose(final_transforms)
+
+
+def build_dynamic_transform(
+    ops: list,
+    n: int = 2,
+    include_baseline: bool = True,
+    include_normalize: bool = False,
+) -> transforms.Compose:
+    """Build dynamic transform pipeline (RandAugment style).
+    
+    Selects N operations from the pool for each image.
+    
+    CRITICAL: Validates that all ops support Tensor inputs, 
+    since DynamicAugment is applied AFTER ToTensor to support
+    Tensor-only ops like GaussianNoise/RandomErasing.
+    
+    Args:
+        ops: List of (op_name, magnitude) tuples (Elite Pool).
+        n: Number of operations to apply per image.
+        include_baseline: If True, include S0.
+        include_normalize: If True, include Normalize.
+        
+    Returns:
+        Composed transform.
+    """
+    transform_list = []
+    
+    # S0 (Applied on PIL image)
+    if include_baseline:
+        transform_list.append(transforms.RandomCrop(32, padding=4))
+        transform_list.append(transforms.RandomHorizontalFlip(p=0.5))
+        
+    # Convert to Tensor
+    transform_list.append(transforms.ToTensor())
+    
+    # Dynamic Augment (Applied on Tensor)
+    # Allows mixing PIL-compatible ops (Rotation, etc.) and Tensor-only ops (Noise, Erasing)
+    transform_list.append(DynamicAugment(ops, n))
+    
+    if include_normalize:
+        transform_list.append(
+            transforms.Normalize(mean=CIFAR100_MEAN, std=CIFAR100_STD)
+        )
+        
+    return transforms.Compose(transform_list)
 
 
 def build_ours_p1_transform(

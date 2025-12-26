@@ -39,7 +39,7 @@ import time
 import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple, Any
 
 import numpy as np
 import pandas as pd
@@ -56,6 +56,7 @@ from src.augmentations import (
     build_transform_with_ops,
     build_transform_with_op,  # v5.5: for Best_SingleOp
     build_ours_p1_transform,
+    build_dynamic_transform,  # v6: Dynamic
     get_baseline_transform,
     get_randaugment_transform,
     get_cutout_transform,
@@ -90,28 +91,21 @@ BEST_SINGLE_OP_CONFIG = None  # Will be set to (op_name, magnitude, probability)
 
 def get_method_transform(
     method_name: str,
-    policy: Optional[List[Tuple[str, float, float]]] = None,
+    policy: Any = None,
 ) -> Callable:
     """Get transform for a given method.
     
-    v5.4: Ours_optimal now uses probability_adjusted from policy JSON.
-    
     Args:
         method_name: One of AVAILABLE_METHODS.
-        policy: Phase C policy (required for Ours_p1 and Ours_optimal).
+        policy: Policy object (list or tuple for dynamic).
         
     Returns:
         Transform callable.
-        
-    Raises:
-        ValueError: If method_name is unknown or policy is missing.
     """
     if method_name == "Baseline":
         return get_baseline_transform(include_normalize=False)
     
     elif method_name == "Baseline-NoAug":
-        # v5.4: No augmentation at all - just ToTensor without any augmentation
-        # Note: still need to resize to 32x32 for CIFAR
         from torchvision import transforms
         return transforms.Compose([
             transforms.ToTensor(),
@@ -124,24 +118,38 @@ def get_method_transform(
         return get_cutout_transform(n_holes=1, length=16, include_baseline=True, include_normalize=False)
     
     elif method_name == "Best_SingleOp":
-        # v5.5: Use the best single operation from Phase B
         global BEST_SINGLE_OP_CONFIG
         if BEST_SINGLE_OP_CONFIG is None:
-            # Fallback to baseline if not configured
             return get_baseline_transform(include_normalize=False)
         op_name, m, p = BEST_SINGLE_OP_CONFIG
         return build_transform_with_op(op_name, m, p, include_baseline=True, include_normalize=False)
     
     elif method_name == "Ours_p1":
+        if isinstance(policy, tuple) and len(policy) == 3 and policy[2] == "dynamic":
+             print("WARNING: Ours_p1 not supported for dynamic policy. Using Baseline.")
+             return get_baseline_transform(include_normalize=False)
+             
         if policy is None or len(policy) == 0:
-            # No policy = just baseline
             return get_baseline_transform(include_normalize=False)
         return build_ours_p1_transform(policy, include_baseline=True, include_normalize=False)
     
     elif method_name == "Ours_optimal":
-        if policy is None or len(policy) == 0:
-            # No policy = just baseline
+        if policy is None:
             return get_baseline_transform(include_normalize=False)
+            
+        # Check for Dynamic Policy: (pool, n_ops, "dynamic")
+        if isinstance(policy, tuple) and len(policy) == 3 and policy[2] == "dynamic":
+            pool, n_ops, _ = policy
+            return build_dynamic_transform(
+                ops=pool,
+                n=n_ops,
+                include_baseline=True,
+                include_normalize=False
+            )
+            
+        if len(policy) == 0:
+            return get_baseline_transform(include_normalize=False)
+            
         return build_transform_with_ops(policy, include_baseline=True, include_normalize=False)
     
     else:
@@ -171,43 +179,45 @@ def get_method_description(method_name: str) -> str:
 # Policy Loading
 # =============================================================================
 
-def load_policy(json_path: Path, use_adjusted: bool = True) -> List[Tuple[str, float, float]]:
+def load_policy(json_path: Path, use_adjusted: bool = True):
     """Load policy from Phase C JSON file.
     
-    v5.4: Supports loading adjusted probabilities for combination.
+    v6.0: Supports Dynamic Policy format.
     
-    Args:
-        json_path: Path to phase_c_final_policy.json
-        use_adjusted: If True, use probability_adjusted (for Ours_optimal).
-                      If False, use probability_original (for Ours_p1).
-                      Falls back to "probability" for backward compatibility.
-        
     Returns:
-        List of (op_name, magnitude, probability) tuples.
+        For Dynamic: Tuple[List[ops], n_ops, "dynamic"]
+        For Static: List[ops] (legacy)
     """
     if not json_path.exists():
         raise FileNotFoundError(f"Policy file not found: {json_path}")
     
     with open(json_path, "r") as f:
-        policy_dict = json.load(f)
+        d = json.load(f)
+        
+    # Check for v6 dynamic policy
+    if d.get("strategy") == "dynamic_prior":
+        pool = []
+        for op in d["pool"]:
+            pool.append((op["name"], op["magnitude"]))
+        return pool, d["n_ops"], "dynamic"
     
+    # Legacy Static Policy
     policy = []
-    for op in policy_dict.get("ops", []):
+    for op in d.get("ops", []):
         name = op["name"]
         magnitude = op["magnitude"]
         
-        # v5.4: Support adjusted probabilities
         if use_adjusted and "probability_adjusted" in op:
             probability = op["probability_adjusted"]
         elif "probability_original" in op:
             probability = op["probability_original"]
         else:
-            # Backward compatibility: use "probability" key
             probability = op.get("probability", 1.0)
         
         policy.append((name, magnitude, probability))
     
-    return policy
+    return policy, None, "static"
+
 
 
 # =============================================================================
@@ -221,7 +231,7 @@ def train_single_config(
     epochs: int,
     device: torch.device,
     fold_idx: int,
-    policy: Optional[List[Tuple[str, float, float]]] = None,
+    policy: Any = None,
     batch_size: int = 128,
     num_workers: int = 8,
     early_stop_patience: int = 99999,
@@ -255,15 +265,25 @@ def train_single_config(
     set_seed_deterministic(seed, deterministic=deterministic)
     
     # Build magnitude and probability strings for CSV
-    if method_name in ["Ours_p1", "Ours_optimal"] and policy and len(policy) > 0:
-        if method_name == "Ours_p1":
-            # Ablation: all p = 1.0
-            mag_str = "+".join([str(round(op[1], 4)) for op in policy])
-            prob_str = "+".join(["1.0" for _ in policy])
+    # Build magnitude and probability strings for CSV
+    if method_name in ["Ours_p1", "Ours_optimal"] and policy:
+        # Check for Dynamic Policy
+        if isinstance(policy, tuple) and len(policy) == 3 and policy[2] == "dynamic":
+            pool, n_ops, _ = policy
+            mag_str = f"Dynamic(N={n_ops}, Pool={len(pool)})"
+            prob_str = "Dynamic"
+        elif len(policy) > 0:
+            if method_name == "Ours_p1":
+                # Ablation: all p = 1.0
+                mag_str = "+".join([str(round(op[1], 4)) for op in policy])
+                prob_str = "+".join(["1.0" for _ in policy])
+            else:
+                # Optimal: use actual p values
+                mag_str = "+".join([str(round(op[1], 4)) for op in policy])
+                prob_str = "+".join([str(round(op[2], 4)) for op in policy])
         else:
-            # Optimal: use actual p values
-            mag_str = "+".join([str(round(op[1], 4)) for op in policy])
-            prob_str = "+".join([str(round(op[2], 4)) for op in policy])
+            mag_str = "N/A"
+            prob_str = "N/A"
     else:
         mag_str = "N/A"
         prob_str = "N/A"
@@ -615,17 +635,39 @@ def run_phase_d(
                 policy_json = main_policy_path  # For error message
         
         if policy_json.exists():
-            # v5.4: Load both original and adjusted policies
-            policy_original = load_policy(policy_json, use_adjusted=False)
-            policy_adjusted = load_policy(policy_json, use_adjusted=True)
-            policy = policy_adjusted  # Default for get_method_transform
+            # v6.0: Load policy (can be static list or dynamic tuple)
+            policy_data = load_policy(policy_json, use_adjusted=True)
             
-            print(f"Loaded policy from {policy_json}")
-            print(f"Policy (original): {[(op[0], f'm={op[1]:.2f}', f'p={op[2]:.2f}') for op in policy_original]}")
-            print(f"Policy (adjusted): {[(op[0], f'm={op[1]:.2f}', f'p={op[2]:.2f}') for op in policy_adjusted]}")
+            # Check if dynamic
+            if isinstance(policy_data, tuple) and len(policy_data) == 3 and policy_data[2] == "dynamic":
+                policy = policy_data
+                policy_original = None # Not applicable for dynamic
+                policy_adjusted = policy_data
+                print(f"Loaded Dynamic Policy: {policy_data[1]} ops from {len(policy_data[0])}-size pool")
+            else:
+                # Static (Legacy support)
+                # Note: load_policy returns (policy, None, "static") for static now
+                # We need to adapt if we want to support the old separate original/adjusted loading logic
+                # But load_policy now encapsulates it. 
+                # Actually, our new load_policy returns (list, None, "static")
+                
+                # To support Ours_p1 (original probabilities), we might need to load twice?
+                # The new load_policy signature `load_policy(json, use_adjusted)` is what we have.
+                # If we want original, we call it with use_adjusted=False.
+                
+                pol_adj, _, _ = load_policy(policy_json, use_adjusted=True)
+                pol_orig, _, _ = load_policy(policy_json, use_adjusted=False)
+                
+                policy = pol_adj
+                policy_adjusted = pol_adj
+                policy_original = pol_orig
+                
+                print(f"Loaded Static Policy from {policy_json}")
+                print(f"Policy (adjusted): {[(op[0], f'm={op[1]:.2f}', f'p={op[2]:.2f}') for op in policy_adjusted]}")
         else:
             print(f"WARNING: Policy file not found: {policy_json}")
             print("Ours_p1 and Ours_optimal will use baseline only.")
+            policy = None
             policy_original = None
             policy_adjusted = None
     

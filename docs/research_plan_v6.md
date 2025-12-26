@@ -134,43 +134,38 @@ OP_SEARCH_SPACE = {
 * **预计时间**: ~2-4h (4 GPU 并行) — **比 Grid Search 快 ~10 倍**
 * **输出**: 按 `val_acc` 排序的 $(Op, m^*, p^*)$ 列表。
 
-> **ASHA 优势**: 采样更多点（不怕错过最优），早停节省算力（差配置不浪费 200ep），理论最优性保证。
+### 阶段 C：精英池构建与动态验证 (Elite Pool Construction) — **v6 Dynamic**
+*目标：构建精英操作池，验证"动态策略"的有效性。*
 
-### 阶段 C：先验贪心组合 (Prior-Guided Ensemble) — **v5.4 统一 200ep**
-*目标：构建最终策略，验证多操作叠加的有效性。*
 * **算法**:
-    1.  初始化策略 $P = S_0$，$\text{Acc}(P) = \text{Baseline\_200ep\_acc}$（与 A/B 一致）。
-    2.  按阶段 B 的 `mean_val_acc` 排名，尝试叠加 $Op_{new}(m^*, p^*)$。
-    3.  **互斥检查**: 跳过与已选操作互斥的候选（如 RandomRotation ↔ RandomPerspective）。
-    4.  **Training**: **3 Random Seeds × 200 Epochs**（与 Phase A/B 一致，公平对比）。
-    5.  **判定**: 若 $\text{mean\_acc}(P + Op_{new}) > \text{Acc}(P) + 0.3\%$，则接受并更新 $P$。
-    6.  **约束**: 组合中额外操作不超过 3 个。
-* **实验量**: ~8 ops × 3 seeds × 200 ep（最坏情况）
-* **预计时间**: ~1h (单 GPU)
+    1.  **Selection**: 选取 Phase B 中表现最好的 **Top-K (e.g. 6)** 个操作，构成 "Elite Pool"。
+    2.  **Validation**: 使用 **Top-K 精英池** + **N=2 随机采样** 进行训练 (Dynamic Augmentation)。
+    3.  **Constraint**: 仅使用 Phase B 的最佳 $m$ 值，不使用复杂的组合搜索。
+* **Training**: **3 Random Seeds × 200 Epochs**。
+* **判定**: 若 Dynamic Policy 优于 Baseline 且逼近/超越 Best Single Op，则为成功。
+* **实验量**: 1 Policy × 3 seeds × 200 ep
+* **预计时间**: ~30 min (单 GPU)
 * **输出**: 
-    - `phase_c_history.csv` - 每次尝试的记录
-    - `phase_c_final_policy.json` - 最终策略定义
+    - `phase_c_final_policy.json` - 包含 Elite Pool 操作列表和参数 N。
 
-> **v5.4 变更**: 统一使用 200 epochs，确保与 Phase A/B 使用相同的 baseline 基准（37%），公平验证"多 Op 组合 > 单 Op > 无增强"的核心假设。
+> **v6 变更**: 移除了贪心搜索，改为更纯粹的 "Filter + Random Select" 模式。
 
-### 阶段 D：SOTA 对比实验 (Benchmark Comparison) — **v5.4 统一 200ep**
-*目标：证明你的方法比现成的 SOTA 方法更好。*
+### 阶段 D：SOTA 对比实验 (Benchmark Comparison) — **v6 Dynamic**
+*目标：证明"Prior-Guided Dynamic Policy"比"Blind Dynamic Policy (RandAugment)"更好。*
 
 在 5 个 Data Folds 上，使用同样的训练设置 (200 Epochs) 运行以下对比组：
 1.  **Baseline**: $S_0$ only.
-2.  **RandAugment**: N=2, M=9 (标准设置)。
+2.  **RandAugment**: N=2, M=9 (标准设置，盲目全集采样)。
 3.  **Cutout**: n_holes=1, length=16.
-4.  **Ours (p=1.0)**: 阶段 C 策略但所有 $p$ 强制为 1.0（消融对照）。
-5.  **Ours (p=optimal)**: 阶段 C 产出的最终策略 $P_{final}$。
+4.  **Best Single Op**: Phase B 也就是最佳单操作 (Upper Bound check)。
+5.  **Ours_dynamic**: **Elite Pool (K=6) + N=2** (本次提出的方法)。
 
 * **实验量**: 5 methods × 5 folds × 200 ep × 1 seed
 * **预计时间**: ~1.5h (4 GPU 并行)
 * **输出**:
-    - `phase_d_results.csv` - 每个 (method, fold) 的结果
-    - `phase_d_summary.csv` - Mean ± Std 汇总（用于论文表格）
-    - `checkpoints/phase_d_fold{0-4}_best.pth` - Ours_optimal 的 5-fold 模型
-
-> **v5.4 变更**: 统一使用 200 epochs，与 Phase A/B/C 保持一致的训练预算，确保公平对比。
+    - `phase_d_results.csv`
+    - `phase_d_summary.csv`
+    - `checkpoints/phase_d_*.pth`
 
 ---
 
@@ -304,4 +299,3 @@ DataLoader(
 | Phase D | ~1.5h | ~1h | ~33% |
 
 > **v5.3 亮点**: Phase B 使用 ASHA 早停淘汰，从 ~35 小时降到 ~2-4 小时！
-

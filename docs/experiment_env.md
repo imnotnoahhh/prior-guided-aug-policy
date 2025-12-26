@@ -432,11 +432,26 @@ CUDA_VISIBLE_DEVICES=0 python main_phase_d.py --folds 0,1,2
 # 创建日志目录
 mkdir -p logs
 
-# 分配 folds 到不同 GPU (注意：每个 GPU 会依次运行所有方法)
-CUDA_VISIBLE_DEVICES=0 nohup python -u main_phase_d.py --folds 0,1 --output_dir outputs/phase_d_gpu0 > logs/phase_d_gpu0.log 2>&1 &
-CUDA_VISIBLE_DEVICES=1 nohup python -u main_phase_d.py --folds 2 --output_dir outputs/phase_d_gpu1 > logs/phase_d_gpu1.log 2>&1 &
-CUDA_VISIBLE_DEVICES=2 nohup python -u main_phase_d.py --folds 3 --output_dir outputs/phase_d_gpu2 > logs/phase_d_gpu2.log 2>&1 &
-CUDA_VISIBLE_DEVICES=3 nohup python -u main_phase_d.py --folds 4 --output_dir outputs/phase_d_gpu3 > logs/phase_d_gpu3.log 2>&1 &
+# 分配 folds 到不同 GPU (每个 GPU 依次跑所有方法)，显式指定 Phase C 策略与 Phase B summary
+CUDA_VISIBLE_DEVICES=0 nohup python -u main_phase_d.py --folds 0,1 \
+  --policy_json outputs/phase_c_final_policy.json \
+  --phase_b_csv outputs/phase_b_tuning_summary.csv \
+  --output_dir outputs/gpu0 > logs/phase_d_gpu0.log 2>&1 &
+
+CUDA_VISIBLE_DEVICES=1 nohup python -u main_phase_d.py --folds 2 \
+  --policy_json outputs/phase_c_final_policy.json \
+  --phase_b_csv outputs/phase_b_tuning_summary.csv \
+  --output_dir outputs/gpu1 > logs/phase_d_gpu1.log 2>&1 &
+
+CUDA_VISIBLE_DEVICES=2 nohup python -u main_phase_d.py --folds 3 \
+  --policy_json outputs/phase_c_final_policy.json \
+  --phase_b_csv outputs/phase_b_tuning_summary.csv \
+  --output_dir outputs/gpu2 > logs/phase_d_gpu2.log 2>&1 &
+
+CUDA_VISIBLE_DEVICES=3 nohup python -u main_phase_d.py --folds 4 \
+  --policy_json outputs/phase_c_final_policy.json \
+  --phase_b_csv outputs/phase_b_tuning_summary.csv \
+  --output_dir outputs/gpu3 > logs/phase_d_gpu3.log 2>&1 &
 
 wait
 echo "All Phase D GPUs finished!"
