@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Smoke Test Script for Phase C: Prior-Guided Greedy Ensemble
+# Smoke Test Script for Phase C: Prior-Guided Greedy Ensemble (v5.5)
 # =============================================================================
 # Validates Phase C environment and runs a minimal dry-run test.
+#
+# v5.5 Notes:
+#   - Improvement threshold increased to 0.2% (from 0.1%)
+#   - Majority rule: requires ≥2/3 seeds to show improvement
+#   - Smoke test uses dry_run mode for quick validation
 #
 # Usage:
 #   bash scripts/smoke_test_phase_c.sh
@@ -85,6 +90,7 @@ echo "Python version: $(python --version)"
 # Step 2: Check required input files
 print_step 2 $TOTAL_STEPS "Checking required input files"
 PHASE_B_CSV="${PROJECT_ROOT}/outputs/phase_b_tuning_summary.csv"
+PHASE_A_CSV="${PROJECT_ROOT}/outputs/phase_a_results.csv"
 
 if [[ ! -f "${PHASE_B_CSV}" ]]; then
     echo "ERROR: Phase B summary not found: ${PHASE_B_CSV}"
@@ -94,6 +100,13 @@ fi
 
 echo "Phase B summary: ${PHASE_B_CSV}"
 echo "Phase B summary rows: $(wc -l < "${PHASE_B_CSV}")"
+
+# Phase A CSV is optional but recommended for Top-K starting points (v5.5)
+if [[ -f "${PHASE_A_CSV}" ]]; then
+    echo "Phase A results found: ${PHASE_A_CSV} (will be used for Top-K starting points)"
+else
+    echo "Phase A results not found (Top-K starting points will be disabled)"
+fi
 
 # Step 3: Check Python imports
 print_step 3 $TOTAL_STEPS "Checking Python imports"
@@ -160,17 +173,24 @@ print('')
 print('Phase C helper functions: OK')
 "
 
-# Step 6: Run dry-run Phase C (minimal epochs)
-print_step 6 $TOTAL_STEPS "Running Phase C dry-run (2 epochs, 1 seed, 1 op max)"
-python main_phase_c.py \
+# Step 6: Run dry-run Phase C (minimal epochs, v5.5: threshold 0.2%, majority rule)
+print_step 6 $TOTAL_STEPS "Running Phase C dry-run (2 epochs, 1 seed, 1 op max, v5.5)"
+PHASE_C_CMD="python main_phase_c.py \
     --epochs 2 \
     --seeds 42 \
     --max_ops 1 \
-    --output_dir "${SMOKE_OUTPUT_DIR}" \
-    --phase_b_csv "${PHASE_B_CSV}" \
+    --output_dir ${SMOKE_OUTPUT_DIR} \
+    --phase_b_csv ${PHASE_B_CSV} \
     --baseline_acc 28.5 \
     --num_workers 4 \
-    --dry_run
+    --dry_run"
+
+# Add --phase_a_csv if file exists (for Top-K starting points, v5.5)
+if [[ -f "${PHASE_A_CSV}" ]]; then
+    PHASE_C_CMD="${PHASE_C_CMD} --phase_a_csv ${PHASE_A_CSV}"
+fi
+
+eval $PHASE_C_CMD
 
 # Step 7: Verify outputs
 print_step 7 $TOTAL_STEPS "Verifying outputs"
@@ -200,7 +220,12 @@ fi
 print_header "Phase C Smoke Test PASSED"
 echo "All checks completed successfully!"
 echo ""
+echo "v5.5: Phase C now uses:"
+echo "  - Improvement threshold: 0.2% (increased from 0.1%)"
+echo "  - Majority rule: requires ≥2/3 seeds to show improvement"
+echo "  - Top-K starting points: uses Phase A results if available"
+echo ""
 echo "You can now run Phase C with full settings:"
-echo "  CUDA_VISIBLE_DEVICES=0 python main_phase_c.py"
+echo "  CUDA_VISIBLE_DEVICES=0 python main_phase_c.py --phase_a_csv outputs/phase_a_results.csv"
 echo ""
 

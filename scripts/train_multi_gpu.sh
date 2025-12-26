@@ -1,20 +1,28 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 完整训练脚本 - 混合 GPU 版本
+# 完整训练脚本 - 混合 GPU 版本 (v5.5)
 # =============================================================================
+# Phase 0: 超参校准 (单 GPU, 可选)
 # Baseline 和 Phase C 使用单 GPU (串行)
 # Phase A, B, D 使用 4 GPU 并行
 #
 # 用法:
 #   bash scripts/train_multi_gpu.sh
 #
+# v5.5 主要变化:
+#   - Phase A: 40ep 低保真筛选 (原 200ep)
+#   - Phase B: rungs [40,100,200] (原 [30,80,200])
+#   - Phase C: 阈值 0.2% + 多数规则
+#   - Phase D: 新增 Best_SingleOp 方法 (共 7 methods)
+#
 # 预计时间 (4 × A10 GPU):
+#   Phase 0:  ~1 hour (单GPU, 可选, 仅首次运行)
 #   Baseline: ~15 min (单GPU)
-#   Phase A:  ~1-1.5 hours (4 GPU 并行)
+#   Phase A:  ~20-30 min (4 GPU 并行, 40ep)
 #   Phase B:  ~0.5-1 hour (ASHA, 4 GPU 并行)
 #   Phase C:  ~1 hour (单GPU, 贪心算法串行)
-#   Phase D:  ~0.5 hours (4 GPU 并行)
-#   总计:     ~4-5 hours
+#   Phase D:  ~0.5-1 hours (4 GPU 并行, 7 methods)
+#   总计:     ~3-5 hours (含 Phase 0)
 # =============================================================================
 
 set -euo pipefail
@@ -104,11 +112,33 @@ echo "多 GPU: ${MULTI_GPUS[*]} (用于 Phase A, B, D)"
 echo "日志目录: ${LOG_DIR}"
 echo "输出目录: ${OUTPUT_DIR}"
 echo ""
-echo "早停策略 (v5.4 - 统一 200ep):"
-echo "  Phase A: min_epochs=60, patience=60"
-echo "  Phase B: ASHA 多轮淘汰 (rungs=30,80,200, keep top 1/2)"
-echo "  Phase C: min_epochs=60, patience=60 (与 A/B 一致)"
-echo "  Phase D: min_epochs=60, patience=60 (与 A/B 一致)"
+echo "早停策略 (v5.5):"
+echo "  Phase A: 40ep 低保真筛选, min_epochs=20, patience=15"
+echo "  Phase B: ASHA 多轮淘汰 (rungs=40,100,200, keep top 1/2)"
+echo "  Phase C: 200ep, 阈值 0.2%, 多数规则"
+echo "  Phase D: 200ep, min_epochs=60, patience=60"
+
+# -----------------------------------------------------------------------------
+# Phase 0: 超参校准 (可选，如已完成可跳过)
+# -----------------------------------------------------------------------------
+if [ ! -f "${OUTPUT_DIR}/phase0_summary.csv" ]; then
+    print_header "[0/5] Phase 0 超参校准 (单 GPU)"
+    echo "配置: 100 epochs × 3 seeds × 12 configs (4 wd × 3 ls)"
+    echo "目的: 确定最优 weight_decay 和 label_smoothing"
+    START_TIME=$(date +%s)
+    
+    CUDA_VISIBLE_DEVICES=${SINGLE_GPU} python run_phase0_calibration.py \
+        --output_dir "${OUTPUT_DIR}" \
+        2>&1 | tee "${LOG_DIR}/phase0_${TIMESTAMP}.log"
+    
+    END_TIME=$(date +%s)
+    echo "Phase 0 耗时: $(( (END_TIME - START_TIME) / 60 )) 分钟"
+    check_success "${OUTPUT_DIR}/phase0_summary.csv" "Phase 0"
+else
+    echo ""
+    echo "跳过 Phase 0: ${OUTPUT_DIR}/phase0_summary.csv 已存在"
+    echo "如需重新校准，请删除该文件后重新运行"
+fi
 
 # -----------------------------------------------------------------------------
 # Baseline (单 GPU)
@@ -125,10 +155,10 @@ echo "Baseline 耗时: $(( (END_TIME - START_TIME) / 60 )) 分钟"
 check_success "${OUTPUT_DIR}/baseline_result.csv" "Baseline"
 
 # -----------------------------------------------------------------------------
-# Phase A (4 GPU 并行)
+# Phase A (4 GPU 并行) - v5.5: 40ep 低保真筛选
 # -----------------------------------------------------------------------------
 print_header "[2/5] Phase A 筛选 (4 GPU 并行)"
-echo "配置: 8 ops 分配到 4 GPU, 每 GPU 2 ops × 32 samples × 200 epochs"
+echo "配置: 8 ops 分配到 4 GPU, 每 GPU 2 ops × 32 samples × 40 epochs (v5.5)"
 START_TIME=$(date +%s)
 
 # 8 ops 分配到 4 GPU (每个 2 ops)
@@ -172,10 +202,10 @@ merge_csv "${OUTPUT_DIR}/phase_a_results.csv" "phase_a" \
 check_success "${OUTPUT_DIR}/phase_a_results.csv" "Phase A"
 
 # -----------------------------------------------------------------------------
-# Phase B ASHA (4 GPU 并行)
+# Phase B ASHA (4 GPU 并行) - v5.5: rungs [40,100,200]
 # -----------------------------------------------------------------------------
 print_header "[3/5] Phase B ASHA 微调 (4 GPU 并行)"
-echo "配置: ASHA 早停淘汰赛, rungs=[30,80,200], 每 GPU 处理 2 ops"
+echo "配置: ASHA 早停淘汰赛, rungs=[40,100,200], 每 GPU 处理 2 ops (v5.5)"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=0 nohup python -u main_phase_b.py \
@@ -235,10 +265,10 @@ print(summary.head(10).to_string(index=False))
 check_success "${OUTPUT_DIR}/phase_b_tuning_summary.csv" "Phase B"
 
 # -----------------------------------------------------------------------------
-# Phase C (单 GPU - 贪心算法必须串行)
+# Phase C (单 GPU - 贪心算法必须串行) - v5.5: 阈值 0.2%, 多数规则
 # -----------------------------------------------------------------------------
 print_header "[4/5] Phase C 贪心组合 (单 GPU)"
-echo "配置: Greedy × 3 seeds × 200 epochs (与 A/B 一致)"
+echo "配置: Greedy × 3 seeds × 200 epochs, 阈值 0.2%, 多数规则 (v5.5)"
 echo "注意: Phase C 使用贪心算法，无法并行化"
 START_TIME=$(date +%s)
 
@@ -252,35 +282,39 @@ echo "Phase C 耗时: $(( (END_TIME - START_TIME) / 60 )) 分钟"
 check_success "${OUTPUT_DIR}/phase_c_final_policy.json" "Phase C"
 
 # -----------------------------------------------------------------------------
-# Phase D (4 GPU 并行 - 按 fold 分配)
+# Phase D (4 GPU 并行 - 按 fold 分配) - v5.5: 新增 Best_SingleOp
 # -----------------------------------------------------------------------------
 print_header "[5/5] Phase D SOTA 对比 (4 GPU 并行)"
-echo "配置: 6 methods × 5 folds × 200 epochs (与 A/B 一致)"
-echo "Methods: Baseline, Baseline-NoAug, RandAugment, Cutout, Ours_p1, Ours_optimal"
+echo "配置: 7 methods × 5 folds × 200 epochs (v5.5)"
+echo "Methods: Baseline, Baseline-NoAug, RandAugment, Cutout, Best_SingleOp, Ours_p1, Ours_optimal"
 START_TIME=$(date +%s)
 
 # 5 folds 分配到 4 GPU: GPU0=fold0,1, GPU1=fold2, GPU2=fold3, GPU3=fold4
 CUDA_VISIBLE_DEVICES=0 nohup python -u main_phase_d.py \
     --folds 0,1 \
     --policy_json "${OUTPUT_DIR}/phase_c_final_policy.json" \
+    --phase_b_csv "${OUTPUT_DIR}/phase_b_tuning_summary.csv" \
     --output_dir "${OUTPUT_DIR}/gpu0" \
     > "${LOG_DIR}/phase_d_gpu0_${TIMESTAMP}.log" 2>&1 &
 
 CUDA_VISIBLE_DEVICES=1 nohup python -u main_phase_d.py \
     --folds 2 \
     --policy_json "${OUTPUT_DIR}/phase_c_final_policy.json" \
+    --phase_b_csv "${OUTPUT_DIR}/phase_b_tuning_summary.csv" \
     --output_dir "${OUTPUT_DIR}/gpu1" \
     > "${LOG_DIR}/phase_d_gpu1_${TIMESTAMP}.log" 2>&1 &
 
 CUDA_VISIBLE_DEVICES=2 nohup python -u main_phase_d.py \
     --folds 3 \
     --policy_json "${OUTPUT_DIR}/phase_c_final_policy.json" \
+    --phase_b_csv "${OUTPUT_DIR}/phase_b_tuning_summary.csv" \
     --output_dir "${OUTPUT_DIR}/gpu2" \
     > "${LOG_DIR}/phase_d_gpu2_${TIMESTAMP}.log" 2>&1 &
 
 CUDA_VISIBLE_DEVICES=3 nohup python -u main_phase_d.py \
     --folds 4 \
     --policy_json "${OUTPUT_DIR}/phase_c_final_policy.json" \
+    --phase_b_csv "${OUTPUT_DIR}/phase_b_tuning_summary.csv" \
     --output_dir "${OUTPUT_DIR}/gpu3" \
     > "${LOG_DIR}/phase_d_gpu3_${TIMESTAMP}.log" 2>&1 &
 

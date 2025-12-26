@@ -2,11 +2,11 @@
 """
 Phase A: Augmentation Screening Script.
 
-v5 CHANGED: 2D Sobol sampling in (magnitude, probability) space.
+v5.5 CHANGED: Low-fidelity screening with 40 epochs (multi-fidelity principle).
 
 Evaluates each candidate augmentation operation with Sobol-sampled (m, p) pairs.
 Each operation uses customized search ranges from OP_SEARCH_SPACE.
-Logs results to CSV for subsequent analysis.
+Uses short training (40ep) to rapidly identify promising candidates.
 
 Reference: docs/research_plan_v5.md Section 3 (Phase A)
 
@@ -15,12 +15,18 @@ Changelog (v4 → v5):
 - [NEW] Per-operation search space from OP_SEARCH_SPACE
 - [CHANGED] CSV output includes actual probability values
 
+Changelog (v5.5):
+- [CHANGED] epochs: 200 → 40 (low-fidelity screening)
+- [CHANGED] Scoring: mean(top3(val_acc[30:40])) for better stability
+- [NEW] Promotion rule: Top-6 + 2 diversity picks per operation
+- [CHANGED] min_epochs/patience adjusted for 40ep
+
 Usage:
-    # Full run (200 epochs, 32 samples per op)
+    # Full run (40 epochs, 32 samples per op)
     python main_phase_a.py
 
-    # Dry run (1 epoch, 2 samples total)
-    python main_phase_a.py --epochs 1 --n_samples 2
+    # Dry run (2 epochs, 2 samples total)
+    python main_phase_a.py --epochs 2 --n_samples 2 --dry_run
 """
 
 import argparse
@@ -159,7 +165,7 @@ def train_single_config(
     start_time = time.time()
     set_seed_deterministic(seed, deterministic=deterministic)
     
-    # Initialize result with unified format (v5: actual probability value)
+    # Initialize result with unified format (v5.5: added stable_score)
     result = {
         "phase": "PhaseA",
         "op_name": op_name,
@@ -178,6 +184,7 @@ def train_single_config(
         "runtime_sec": 0.0,
         "timestamp": "",
         "error": "",
+        "stable_score": -1.0,  # v5.5: new field for scoring
     }
     
     # Build transforms (v5: with probability)
@@ -266,6 +273,7 @@ def train_single_config(
     )
     
     # Training loop - track all metrics
+    # v5.5: Also track val_acc history for scoring
     best_val_acc = 0.0
     best_val_loss = float("inf")
     best_top5_acc = 0.0
@@ -273,6 +281,7 @@ def train_single_config(
     best_train_loss = 0.0
     best_epoch = 0
     early_stopped = False
+    val_acc_history = []  # v5.5: for scoring
     
     for epoch in range(epochs):
         # Train one epoch
@@ -292,6 +301,9 @@ def train_single_config(
             criterion=criterion,
             device=device,
         )
+        
+        # v5.5: Record history for scoring
+        val_acc_history.append(val_acc)
         
         # Update best metrics (by val_acc)
         if val_acc > best_val_acc:
@@ -313,6 +325,19 @@ def train_single_config(
         
         result["epochs_run"] = epoch + 1
     
+    # v5.5: Compute stable score using top-3 from last 10 epochs
+    # For 40ep: use epochs 30-40; for shorter runs: use last 1/4
+    if len(val_acc_history) >= 10:
+        last_quarter = val_acc_history[-10:]
+    else:
+        last_quarter = val_acc_history[-(len(val_acc_history)//4 + 1):]
+    
+    if len(last_quarter) >= 3:
+        top3_vals = sorted(last_quarter, reverse=True)[:3]
+        stable_score = sum(top3_vals) / 3
+    else:
+        stable_score = best_val_acc
+    
     # Final results with unified format
     result["val_acc"] = round(best_val_acc, 4)
     result["val_loss"] = round(best_val_loss, 6)
@@ -323,6 +348,7 @@ def train_single_config(
     result["early_stopped"] = early_stopped
     result["runtime_sec"] = round(time.time() - start_time, 2)
     result["timestamp"] = datetime.now().isoformat(timespec='seconds')
+    result["stable_score"] = round(stable_score, 4)  # v5.5: new field
     
     return result
 
@@ -345,12 +371,12 @@ def write_csv_row(
         row: Dict representing one row.
         write_header: If True, write header before row.
     """
-    # Unified CSV fieldnames (same for all phases)
+    # Unified CSV fieldnames (v5.5: added stable_score)
     fieldnames = [
         "phase", "op_name", "magnitude", "probability", "seed", "fold_idx",
         "val_acc", "val_loss", "top5_acc", "train_acc", "train_loss",
         "epochs_run", "best_epoch", "early_stopped", "runtime_sec",
-        "timestamp", "error"
+        "timestamp", "error", "stable_score"
     ]
     
     # Ensure parent directory exists
@@ -400,8 +426,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--epochs",
         type=int,
-        default=200,
-        help="Number of training epochs per config (default: 200)"
+        default=40,
+        help="Number of training epochs per config (default: 40, v5.5 low-fidelity)"
     )
     
     parser.add_argument(
@@ -409,6 +435,13 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=32,
         help="Number of Sobol samples per operation (default: 32)"
+    )
+    
+    parser.add_argument(
+        "--n_promote",
+        type=int,
+        default=8,
+        help="Number of configs to promote per operation (default: 8 = Top-6 + 2 diversity)"
     )
     
     parser.add_argument(
@@ -442,15 +475,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--early_stop_patience",
         type=int,
-        default=60,
-        help="Early stopping patience - epochs to wait after no improvement (default: 60)"
+        default=15,
+        help="Early stopping patience (default: 15 for 40ep, v5.5)"
     )
     
     parser.add_argument(
         "--min_epochs",
         type=int,
-        default=60,
-        help="Minimum epochs before early stopping is considered (default: 60)"
+        default=20,
+        help="Minimum epochs before early stopping (default: 20 for 40ep, v5.5)"
     )
     
     parser.add_argument(

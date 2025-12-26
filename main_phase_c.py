@@ -722,18 +722,31 @@ def _greedy_search_from_start(
             write_csv_row(history_csv_path, result, write_header_ref[0])
             write_header_ref[0] = False
         
-        # Decision
+        # Decision (v5.5: stricter acceptance with majority rule)
         improvement = mean_acc - current_acc
+        
+        # v5.5: Count how many seeds show improvement
+        individual_accs = [r["val_acc"] for r in results if r.get("val_acc", -1) > 0]
+        n_improved = sum(1 for acc in individual_accs if acc > current_acc)
+        n_total = len(individual_accs)
+        majority_improved = n_improved >= (n_total + 1) // 2  # At least half (2/3 for 3 seeds)
         
         print(f"Results: mean_acc={mean_acc:.2f}% ± {std_acc:.2f}%")
         print(f"Improvement: {improvement:+.2f}% (threshold: +{improvement_threshold}%)")
+        print(f"Seeds improved: {n_improved}/{n_total} (majority rule: {'✓' if majority_improved else '✗'})")
         
-        if improvement > improvement_threshold:
+        # v5.5: Accept only if BOTH conditions are met:
+        # 1. Mean improvement >= threshold
+        # 2. Majority of seeds show improvement
+        if improvement >= improvement_threshold and majority_improved:
             print(f"✓ ACCEPTED: {op_name}")
             current_policy = proposed_policy
             current_acc = mean_acc
         else:
-            print(f"✗ REJECTED: {op_name}")
+            if improvement >= improvement_threshold and not majority_improved:
+                print(f"✗ REJECTED: {op_name} (mean OK but minority of seeds improved)")
+            else:
+                print(f"✗ REJECTED: {op_name}")
     
     print(f"\n[{path_name}] Final: {[op[0] for op in current_policy]} = {current_acc:.2f}%")
     return current_policy, current_acc
@@ -751,7 +764,7 @@ def run_phase_c(
     seeds: List[int] = [42, 123, 456],
     fold_idx: int = 0,
     max_ops: int = 3,
-    improvement_threshold: float = 0.1,
+    improvement_threshold: float = 0.2,  # v5.5: increased from 0.1
     num_workers: int = 8,
     early_stop_patience: int = 99999,
     deterministic: bool = True,
@@ -1042,8 +1055,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--improvement_threshold",
         type=float,
-        default=0.1,
-        help="Minimum improvement threshold in %% (default: 0.1)"
+        default=0.2,
+        help="Minimum improvement threshold in %% (default: 0.2, v5.5)"
     )
     
     parser.add_argument(

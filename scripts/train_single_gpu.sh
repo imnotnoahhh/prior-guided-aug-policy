@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 完整训练脚本 - 单 GPU 版本
+# 完整训练脚本 - 单 GPU 版本 (v5.5)
 # =============================================================================
 # 顺序运行 Baseline → Phase A → Phase B → Phase C → Phase D
 # 全部使用单个 GPU (默认 GPU 0)
@@ -9,13 +9,19 @@
 #   bash scripts/train_single_gpu.sh
 #   CUDA_VISIBLE_DEVICES=1 bash scripts/train_single_gpu.sh  # 使用 GPU 1
 #
+# v5.5 变化:
+#   - Phase A: 40ep 低保真筛选 (原 200ep)
+#   - Phase B: rungs [40,100,200] (原 [30,80,200])
+#   - Phase D: 7 methods (新增 Best_SingleOp)
+#
 # 预计时间 (A10 GPU):
+#   Phase 0:  ~1 hour (可选, 仅首次运行)
 #   Baseline: ~15 min
-#   Phase A:  ~4-5 hours (256 configs × 200 epochs, 允许早停)
-#   Phase B:  ~2-4 hours (ASHA 早停淘汰, rungs=[30,80,200])
+#   Phase A:  ~1 hour (256 configs × 40 epochs, v5.5 低保真)
+#   Phase B:  ~2-4 hours (ASHA 早停淘汰, rungs=[40,100,200])
 #   Phase C:  ~1 hour (Greedy × 3 seeds × 200 epochs)
-#   Phase D:  ~1.5 hours (5 methods × 5 folds × 200 epochs)
-#   总计:     ~9-11 hours
+#   Phase D:  ~2 hours (7 methods × 5 folds × 200 epochs)
+#   总计:     ~7-10 hours (含 Phase 0)
 # =============================================================================
 
 set -euo pipefail
@@ -76,11 +82,33 @@ echo "GPU: ${GPU_ID}"
 echo "日志目录: ${LOG_DIR}"
 echo "输出目录: ${OUTPUT_DIR}"
 echo ""
-echo "早停策略 (v5.4 - 统一 200ep):"
-echo "  Phase A: min_epochs=60, patience=60"
-echo "  Phase B: ASHA 多轮淘汰 (rungs=30,80,200, keep top 1/2)"
-echo "  Phase C: min_epochs=60, patience=60 (与 A/B 一致)"
-echo "  Phase D: min_epochs=60, patience=60 (与 A/B 一致)"
+echo "早停策略 (v5.5):"
+echo "  Phase A: 40ep 低保真筛选, min_epochs=20, patience=15"
+echo "  Phase B: ASHA 多轮淘汰 (rungs=40,100,200, keep top 1/2)"
+echo "  Phase C: 200ep, 阈值 0.2%, 多数规则"
+echo "  Phase D: 200ep, min_epochs=60, patience=60"
+
+# -----------------------------------------------------------------------------
+# Phase 0: 超参校准 (可选，如已完成可跳过)
+# -----------------------------------------------------------------------------
+if [ ! -f "${OUTPUT_DIR}/phase0_summary.csv" ]; then
+    print_header "[0/5] Phase 0 超参校准"
+    echo "配置: 100 epochs × 3 seeds × 12 configs (4 wd × 3 ls)"
+    echo "目的: 确定最优 weight_decay 和 label_smoothing"
+    START_TIME=$(date +%s)
+    
+    CUDA_VISIBLE_DEVICES=${GPU_ID} python run_phase0_calibration.py \
+        --output_dir "${OUTPUT_DIR}" \
+        2>&1 | tee "${LOG_DIR}/phase0_${TIMESTAMP}.log"
+    
+    END_TIME=$(date +%s)
+    echo "Phase 0 耗时: $(( (END_TIME - START_TIME) / 60 )) 分钟"
+    check_success "${OUTPUT_DIR}/phase0_summary.csv" "Phase 0"
+else
+    echo ""
+    echo "跳过 Phase 0: ${OUTPUT_DIR}/phase0_summary.csv 已存在"
+    echo "如需重新校准，请删除该文件后重新运行"
+fi
 
 # -----------------------------------------------------------------------------
 # Baseline
@@ -97,10 +125,10 @@ echo "Baseline 耗时: $(( (END_TIME - START_TIME) / 60 )) 分钟"
 check_success "${OUTPUT_DIR}/baseline_result.csv" "Baseline"
 
 # -----------------------------------------------------------------------------
-# Phase A
+# Phase A (v5.5: 40ep 低保真筛选)
 # -----------------------------------------------------------------------------
 print_header "[2/5] Phase A 筛选"
-echo "配置: 8 ops × 32 samples × 200 epochs, min_epochs=60, patience=60"
+echo "配置: 8 ops × 32 samples × 40 epochs (v5.5 低保真)"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${GPU_ID} python main_phase_a.py \
@@ -112,10 +140,10 @@ echo "Phase A 耗时: $(( (END_TIME - START_TIME) / 60 )) 分钟"
 check_success "${OUTPUT_DIR}/phase_a_results.csv" "Phase A"
 
 # -----------------------------------------------------------------------------
-# Phase B (ASHA v5.3)
+# Phase B (v5.5: rungs [40,100,200])
 # -----------------------------------------------------------------------------
 print_header "[3/5] Phase B ASHA 微调"
-echo "配置: ASHA 早停淘汰赛, rungs=[30,80,200], Sobol 30 samples/op"
+echo "配置: ASHA 早停淘汰赛, rungs=[40,100,200], Sobol 30 samples/op (v5.5)"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${GPU_ID} python main_phase_b.py \
@@ -127,10 +155,10 @@ echo "Phase B 耗时: $(( (END_TIME - START_TIME) / 60 )) 分钟"
 check_success "${OUTPUT_DIR}/phase_b_tuning_summary.csv" "Phase B"
 
 # -----------------------------------------------------------------------------
-# Phase C
+# Phase C (v5.5: 阈值 0.2%, 多数规则)
 # -----------------------------------------------------------------------------
 print_header "[4/5] Phase C 贪心组合"
-echo "配置: Greedy × 3 seeds × 200 epochs (与 A/B 一致)"
+echo "配置: Greedy × 3 seeds × 200 epochs, 阈值 0.2%, 多数规则 (v5.5)"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${GPU_ID} python main_phase_c.py \
@@ -143,14 +171,15 @@ echo "Phase C 耗时: $(( (END_TIME - START_TIME) / 60 )) 分钟"
 check_success "${OUTPUT_DIR}/phase_c_final_policy.json" "Phase C"
 
 # -----------------------------------------------------------------------------
-# Phase D
+# Phase D (v5.5: 7 methods, 含 Best_SingleOp)
 # -----------------------------------------------------------------------------
 print_header "[5/5] Phase D SOTA 对比"
-echo "配置: 5 methods × 5 folds × 200 epochs (与 A/B 一致)"
+echo "配置: 7 methods × 5 folds × 200 epochs (v5.5)"
 START_TIME=$(date +%s)
 
 CUDA_VISIBLE_DEVICES=${GPU_ID} python main_phase_d.py \
     --policy_json "${OUTPUT_DIR}/phase_c_final_policy.json" \
+    --phase_b_csv "${OUTPUT_DIR}/phase_b_tuning_summary.csv" \
     --output_dir "${OUTPUT_DIR}" \
     2>&1 | tee "${LOG_DIR}/phase_d_${TIMESTAMP}.log"
 

@@ -2,10 +2,11 @@
 """
 Phase B: Augmentation Tuning Script with ASHA Scheduler.
 
+v5.5 CHANGED: Rungs aligned with Phase A (40,100,200).
 v5.4 CHANGED: Final rung uses multi-seed evaluation for stability.
 v5.3 CHANGED: ASHA (Asynchronous Successive Halving) replaces Grid Search.
 - Sobol sampling instead of grid search (more exploration, less bias)
-- Multi-fidelity early stopping: 30ep → 80ep → 200ep
+- Multi-fidelity early stopping: 40ep → 100ep → 200ep (v5.5)
 - Each rung keeps top 1/2, eliminates weak configs early
 - Final rung (200ep) uses 3 seeds for stable ranking
 - ~10x faster than full grid search with same or better results
@@ -13,6 +14,7 @@ v5.3 CHANGED: ASHA (Asynchronous Successive Halving) replaces Grid Search.
 Reference: docs/research_plan_v5.md Section 3 (Phase B)
 
 Changelog:
+- v5.5: Rungs [40,100,200] aligned with Phase A
 - v5.4: Final rung multi-seed evaluation for stability
 - v5.3: ASHA scheduler with Sobol sampling
 - v5.2: channels_last, prefetch_factor=4
@@ -27,7 +29,7 @@ Usage:
     python main_phase_b.py --n_samples 5 --dry_run
     
     # Custom rungs
-    python main_phase_b.py --rungs 30,80,200 --reduction_factor 2
+    python main_phase_b.py --rungs 40,100,200 --reduction_factor 2
 """
 
 import argparse
@@ -729,8 +731,8 @@ Examples:
     
     # ASHA parameters
     parser.add_argument(
-        "--rungs", type=str, default="30,80,200",
-        help="Comma-separated epoch checkpoints (default: 30,80,200)"
+        "--rungs", type=str, default="40,100,200",
+        help="Comma-separated epoch checkpoints (default: 40,100,200, v5.5)"
     )
     parser.add_argument(
         "--reduction_factor", type=int, default=2,

@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Smoke Test Script for Phase B: Augmentation Tuning
+# Smoke Test Script for Phase B: Augmentation Tuning (v5.5)
 # =============================================================================
 # Validates Phase B environment and runs a minimal dry-run test.
+#
+# v5.5 Notes:
+#   - ASHA rungs changed to [40,100,200] (aligned with Phase A)
+#   - Smoke test uses dry_run mode for quick validation
 #
 # Usage:
 #   bash scripts/smoke_test_phase_b.sh
@@ -176,9 +180,9 @@ print('Promoted ops detection: PASSED')
 "
 
 # -----------------------------------------------------------------------------
-# Step 5: Phase B dry run
+# Step 5: Phase B dry run (v5.5: default rungs=[40,100,200], dry_run uses minimal)
 # -----------------------------------------------------------------------------
-print_step "5" "6" "Phase B ASHA dry run (n_samples=3, rungs=5,10)..."
+print_step "5" "6" "Phase B ASHA dry run (n_samples=3, dry_run mode)..."
 
 # Create a temporary output directory for smoke test
 SMOKE_OUTPUT_DIR="outputs/smoke_phase_b_${TIMESTAMP}"
@@ -260,6 +264,8 @@ print_header "ALL PHASE B SMOKE TESTS PASSED"
 echo "Smoke test completed successfully at $(date)"
 echo "Raw results: $RAW_CSV"
 echo "Summary results: $SUMMARY_CSV"
+echo ""
+echo "v5.5: Phase B ASHA rungs changed to [40,100,200] (aligned with Phase A)"
 echo ""
 
 exit 0

@@ -20,6 +20,11 @@ Changelog (v5.4):
 - [NEW] OP_DESTRUCTIVENESS: per-operation destructiveness weights
 - [NEW] adjust_probabilities_for_combination: control total augmentation intensity
 - [CHANGED] RandomErasing p range expanded to [0.1, 0.5]
+
+Changelog (v5.5):
+- [CHANGED] OP_SEARCH_SPACE: more conservative ranges to avoid "必炸区"
+- [CHANGED] adjust_probabilities_for_combination: now considers magnitude (w = 1 - d * g(m))
+- [NEW] magnitude_influence function for weighted probability adjustment
 """
 
 from typing import Callable, Dict, List, Optional, Tuple, Union
@@ -46,18 +51,21 @@ from PIL import Image
 
 OP_SEARCH_SPACE: Dict[str, Dict[str, List[float]]] = {
     # Mild operations - can use higher probability
+    # v5.5: ranges kept wide for mild ops
     "ColorJitter":       {"m": [0.1, 0.8], "p": [0.2, 0.8]},
     "RandomGrayscale":   {"m": [0.5, 0.5], "p": [0.1, 0.6]},  # m fixed, only search p
-    "GaussianNoise":     {"m": [0.05, 0.5], "p": [0.2, 0.8]},
+    "GaussianNoise":     {"m": [0.02, 0.25], "p": [0.2, 0.8]},  # v5.5: reduced from [0.05,0.5]
     
     # Medium operations
-    "RandomResizedCrop": {"m": [0.3, 0.9], "p": [0.3, 0.8]},
-    "RandomRotation":    {"m": [0.0, 0.4], "p": [0.2, 0.6]},
+    # v5.5: more conservative to avoid losing key regions
+    "RandomResizedCrop": {"m": [0.5, 0.95], "p": [0.3, 0.8]},  # v5.5: scale_min higher
+    "RandomRotation":    {"m": [0.0, 0.4], "p": [0.2, 0.6]},   # ~0-18 degrees
     "GaussianBlur":      {"m": [0.0, 0.3], "p": [0.2, 0.6]},
     
     # Destructive operations - need lower probability
-    "RandomErasing":     {"m": [0.05, 0.3], "p": [0.1, 0.5]},  # v5.4: expanded from 0.4 to 0.5
-    "RandomPerspective": {"m": [0.0, 0.3], "p": [0.1, 0.5]},
+    # v5.5: tighter ranges to avoid "必炸区"
+    "RandomErasing":     {"m": [0.02, 0.20], "p": [0.1, 0.5]},  # v5.5: area reduced
+    "RandomPerspective": {"m": [0.0, 0.25], "p": [0.1, 0.5]},   # v5.5: reduced from 0.3
 }
 
 
@@ -80,9 +88,25 @@ OP_DESTRUCTIVENESS: Dict[str, float] = {
 }
 
 
+def magnitude_influence(m: float) -> float:
+    """Map magnitude [0,1] to influence factor [0,1].
+    
+    v5.5: Linear mapping. Higher magnitude → stronger influence on weight reduction.
+    Can be changed to m**2 for more conservative high-magnitude handling.
+    
+    Args:
+        m: Normalized magnitude in [0, 1].
+        
+    Returns:
+        Influence factor in [0, 1].
+    """
+    return max(0.0, min(1.0, m))
+
+
 def adjust_probabilities_for_combination(
     ops: List[Tuple[str, float, float]],
     p_any_target: float = 0.5,
+    use_magnitude: bool = True,
 ) -> List[Tuple[str, float, float]]:
     """Adjust operation probabilities to control total augmentation intensity.
     
@@ -90,8 +114,10 @@ def adjust_probabilities_for_combination(
     the overall augmentation intensity can become too strong. This function adjusts
     individual probabilities to maintain a target "at least one augmentation" rate.
     
-    Algorithm:
-    1. Define weight w_i = 1 - d_i (higher destructiveness → lower weight)
+    v5.5 Algorithm (with magnitude):
+    1. Define weight w_i = 1 - d_i × g(m_i)
+       - d_i: destructiveness of operation i
+       - g(m_i): magnitude influence (linear by default)
     2. Scale probabilities: p'_i = clip(α × w_i × p_i, 0, 1)
     3. Solve for α such that: 1 - ∏(1 - p'_i) ≈ p_any_target
     
@@ -99,6 +125,8 @@ def adjust_probabilities_for_combination(
         ops: List of (op_name, magnitude, probability) tuples.
         p_any_target: Target probability that at least one augmentation is applied.
                       Default 0.5 (50% of images get at least one augmentation).
+        use_magnitude: If True, incorporate magnitude into weight calculation.
+                       Default True (v5.5 behavior).
     
     Returns:
         Adjusted list of (op_name, magnitude, adjusted_probability) tuples.
@@ -106,7 +134,7 @@ def adjust_probabilities_for_combination(
     Example:
         >>> policy = [("RandomErasing", 0.24, 0.34), ("GaussianNoise", 0.08, 0.76)]
         >>> adjusted = adjust_probabilities_for_combination(policy, p_any_target=0.5)
-        >>> # RandomErasing (d=0.85) gets reduced more than GaussianNoise (d=0.20)
+        >>> # RandomErasing (d=0.85, m=0.24) gets reduced more than GaussianNoise (d=0.20, m=0.08)
     """
     import numpy as np
     
@@ -118,11 +146,23 @@ def adjust_probabilities_for_combination(
     magnitudes = [op[1] for op in ops]
     probs = np.array([op[2] for op in ops], dtype=np.float64)
     
-    # Compute weights: w_i = 1 - d_i
-    weights = np.array([
-        1.0 - OP_DESTRUCTIVENESS.get(name, 0.5) 
-        for name in names
-    ], dtype=np.float64)
+    # Compute weights: w_i = 1 - d_i × g(m_i)
+    # v5.5: Now considers magnitude - higher m means more aggressive reduction
+    weights = []
+    for i, name in enumerate(names):
+        d = OP_DESTRUCTIVENESS.get(name, 0.5)
+        m = magnitudes[i]
+        
+        if use_magnitude:
+            g_m = magnitude_influence(m)
+            w = 1.0 - d * g_m
+        else:
+            # v5.4 behavior: only use destructiveness
+            w = 1.0 - d
+        
+        weights.append(max(0.0, min(1.0, w)))
+    
+    weights = np.array(weights, dtype=np.float64)
     
     # Define objective function
     def compute_p_any(alpha: float) -> float:

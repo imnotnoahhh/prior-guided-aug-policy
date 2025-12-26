@@ -54,6 +54,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.augmentations import (
     build_transform_with_ops,
+    build_transform_with_op,  # v5.5: for Best_SingleOp
     build_ours_p1_transform,
     get_baseline_transform,
     get_randaugment_transform,
@@ -79,7 +80,11 @@ from src.utils import (
 
 # Available methods for comparison
 # v5.4: Added "Baseline-NoAug" for ablation (no augmentation at all)
-AVAILABLE_METHODS = ["Baseline", "Baseline-NoAug", "RandAugment", "Cutout", "Ours_p1", "Ours_optimal"]
+# v5.5: Added "Best_SingleOp" for ablation (best single operation from Phase B)
+AVAILABLE_METHODS = ["Baseline", "Baseline-NoAug", "RandAugment", "Cutout", "Best_SingleOp", "Ours_p1", "Ours_optimal"]
+
+# v5.5: Global variable to store best single op config (loaded from Phase B)
+BEST_SINGLE_OP_CONFIG = None  # Will be set to (op_name, magnitude, probability)
 
 
 def get_method_transform(
@@ -117,6 +122,15 @@ def get_method_transform(
     elif method_name == "Cutout":
         return get_cutout_transform(n_holes=1, length=16, include_baseline=True, include_normalize=False)
     
+    elif method_name == "Best_SingleOp":
+        # v5.5: Use the best single operation from Phase B
+        global BEST_SINGLE_OP_CONFIG
+        if BEST_SINGLE_OP_CONFIG is None:
+            # Fallback to baseline if not configured
+            return get_baseline_transform(include_normalize=False)
+        op_name, m, p = BEST_SINGLE_OP_CONFIG
+        return build_transform_with_op(op_name, m, p, include_baseline=True, include_normalize=False)
+    
     elif method_name == "Ours_p1":
         if policy is None or len(policy) == 0:
             # No policy = just baseline
@@ -135,14 +149,20 @@ def get_method_transform(
 
 def get_method_description(method_name: str) -> str:
     """Get human-readable description of a method."""
+    global BEST_SINGLE_OP_CONFIG
     descriptions = {
         "Baseline": "S0 (RandomCrop + HorizontalFlip)",
         "Baseline-NoAug": "No augmentation (ablation)",
         "RandAugment": "RandAugment (N=2, M=9)",
         "Cutout": "Cutout (length=16)",
+        "Best_SingleOp": f"Best single op from Phase B",
         "Ours_p1": "Ours (p=1.0 ablation)",
         "Ours_optimal": "Ours (optimal p, adjusted)",
     }
+    # v5.5: Add specific op info for Best_SingleOp
+    if method_name == "Best_SingleOp" and BEST_SINGLE_OP_CONFIG:
+        op_name, m, p = BEST_SINGLE_OP_CONFIG
+        return f"Best single: {op_name}(m={m:.2f}, p={p:.2f})"
     return descriptions.get(method_name, method_name)
 
 
@@ -530,6 +550,7 @@ def aggregate_results(raw_csv_path: Path, summary_csv_path: Path) -> pd.DataFram
 def run_phase_d(
     output_dir: Path,
     policy_json: Optional[Path] = None,
+    phase_b_csv: Optional[Path] = None,  # v5.5: for Best_SingleOp
     methods: Optional[List[str]] = None,
     folds: Optional[List[int]] = None,
     epochs: int = 800,
@@ -541,9 +562,12 @@ def run_phase_d(
 ) -> pd.DataFrame:
     """Run Phase D benchmark comparison.
     
+    v5.5: Added phase_b_csv parameter for Best_SingleOp method.
+    
     Args:
         output_dir: Directory for output files.
         policy_json: Path to Phase C policy JSON (for Ours methods).
+        phase_b_csv: Path to Phase B summary CSV (for Best_SingleOp).
         methods: List of methods to run. Default: all.
         folds: List of fold indices to run. Default: [0,1,2,3,4].
         epochs: Training epochs per configuration.
@@ -599,6 +623,37 @@ def run_phase_d(
             print("Ours_p1 and Ours_optimal will use baseline only.")
             policy_original = None
             policy_adjusted = None
+    
+    # v5.5: Load Best_SingleOp configuration from Phase B summary
+    global BEST_SINGLE_OP_CONFIG
+    if "Best_SingleOp" in methods:
+        if phase_b_csv is None:
+            # Try default locations
+            main_b_path = Path("outputs/phase_b_tuning_summary.csv")
+            local_b_path = output_dir / "phase_b_tuning_summary.csv"
+            
+            if main_b_path.exists():
+                phase_b_csv = main_b_path
+            elif local_b_path.exists():
+                phase_b_csv = local_b_path
+        
+        if phase_b_csv and phase_b_csv.exists():
+            import pandas as pd
+            b_df = pd.read_csv(phase_b_csv)
+            if len(b_df) > 0:
+                # Get the row with highest mean_val_acc
+                best_row = b_df.loc[b_df['mean_val_acc'].idxmax()]
+                BEST_SINGLE_OP_CONFIG = (
+                    best_row['op_name'],
+                    float(best_row['magnitude']),
+                    float(best_row['probability']),
+                )
+                print(f"Best_SingleOp: {BEST_SINGLE_OP_CONFIG[0]} (m={BEST_SINGLE_OP_CONFIG[1]:.4f}, p={BEST_SINGLE_OP_CONFIG[2]:.4f})")
+            else:
+                print("WARNING: Phase B summary is empty. Best_SingleOp will use baseline.")
+                BEST_SINGLE_OP_CONFIG = None
+        else:
+            print(f"WARNING: Phase B summary not found. Best_SingleOp will use baseline.")
     
     print("=" * 70)
     print("Phase D: SOTA Benchmark Comparison")
@@ -737,6 +792,13 @@ def parse_args() -> argparse.Namespace:
     )
     
     parser.add_argument(
+        "--phase_b_csv",
+        type=str,
+        default=None,
+        help="Path to Phase B summary CSV for Best_SingleOp (default: outputs/phase_b_tuning_summary.csv)"
+    )
+    
+    parser.add_argument(
         "--methods",
         type=str,
         default=None,
@@ -827,10 +889,14 @@ def main() -> int:
         print("MODE: DRY RUN")
     print("=" * 70)
     
+    # v5.5: Parse phase_b_csv
+    phase_b_csv = Path(args.phase_b_csv) if args.phase_b_csv else None
+    
     try:
         run_phase_d(
             output_dir=output_dir,
             policy_json=policy_json,
+            phase_b_csv=phase_b_csv,  # v5.5: for Best_SingleOp
             methods=methods,
             folds=folds,
             epochs=args.epochs,

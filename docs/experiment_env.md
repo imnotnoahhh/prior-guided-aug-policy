@@ -82,6 +82,7 @@ python run_baseline.py \
 
 ## 3. Phase A 筛选
 
+> **v5.5 更新**: 40ep 低保真筛选，节省 80% 计算量！
 > **GPU 说明**: Phase A 顺序执行 256 个配置 (v5: 2D Sobol 采样 m×p)，默认使用 GPU 0。
 
 ### 3.1 单 GPU 运行
@@ -134,18 +135,21 @@ echo "Total rows: $(wc -l < outputs/phase_a_results.csv)"
 
 ```bash
 python main_phase_a.py \
-    --epochs 200 \
+    --epochs 40 \      # v5.5: 低保真筛选
     --n_samples 32 \
+    --n_promote 8 \    # v5.5: 每 op 晋级 8 个配置
     --fold_idx 0 \
     --output_dir outputs \
     --seed 42 \
-    --num_workers 6 \
-    --min_epochs 60 \
-    --early_stop_patience 60 \
+    --num_workers 8 \
+    --min_epochs 20 \  # v5.5: 适配 40ep
+    --early_stop_patience 15 \
     --ops RandomRotation,ColorJitter  # 可选，仅评估指定的 ops
 ```
 
-> **v5.1 早停策略**: Phase A 使用 `min_epochs=60, patience=60, monitor=val_acc`。
+> **v5.5 变更**: 
+> - 40ep 低保真筛选，与 200ep 最终性能高度相关 (ρ > 0.8)
+> - 新增 stable_score 评分: `mean(top3(val_acc[30:40]))`
 
 ### 输出文件
 
@@ -162,8 +166,9 @@ python main_phase_a.py \
 
 ---
 
-## 4. Phase B ASHA 深度微调 (v5.4)
+## 4. Phase B ASHA 深度微调 (v5.5)
 
+> **v5.5 更新**: Rungs 调整为 [40,100,200]，与 Phase A 对齐！
 > **v5.4 更新**: 最终 Rung 使用多 seed (3 seeds) 评估，提高排名稳定性！
 > **v5.3 更新**: Grid Search → ASHA 早停淘汰赛，速度提升 ~10 倍！
 
@@ -560,13 +565,16 @@ bash scripts/train_multi_gpu.sh
 | 阶段 | 配置数 | 早停策略 | 预计时间 (单 GPU) | 预计时间 (4 GPU) |
 |------|--------|----------|------------------|-----------------|
 | Baseline | 1 × 200 ep | 允许早停 | ~15 min | ~15 min |
-| Phase A | 8 ops × 32 点 × 200 ep | 允许早停 | ~4-5h | ~1-1.2h |
-| Phase B (ASHA) | ~8 ops × 30 samples, rungs=[30,80,200] | ASHA 淘汰 | ~2-4h | ~0.5-1h |
-| Phase C | ~8 ops × 3 seeds × 200 ep | 允许早停 | ~1h | ~1h (单GPU) |
-| Phase D | 5 methods × 5 folds × 200 ep | 允许早停 | ~1.5h | ~0.5h |
+| Phase A | 8 ops × 32 点 × **40 ep** | 允许早停 | ~1h | ~20-30min |
+| Phase B (ASHA) | ~8 ops × 30 samples, rungs=[**40,100,200**] | ASHA 淘汰 | ~2-4h | ~0.5-1h |
+| Phase C | ~8 ops × 3 seeds × 200 ep | 阈值 0.2% + 多数规则 | ~1h | ~1h (单GPU) |
+| Phase D | **7 methods** × 5 folds × 200 ep | 允许早停 | ~2h | ~0.5-1h |
 
-> **v5.4 变更**: 
-> - 所有阶段统一使用 200 epochs，与 Phase A/B 保持一致的训练预算
+> **v5.5 变更**: 
+> - Phase A 降为 40ep 低保真筛选，节省 80% 计算量
+> - Phase B rungs 调整为 [40,100,200]
+> - Phase C 接受条件改为阈值 0.2% + 多数规则
+> - Phase D 新增 Best_SingleOp 方法 (共 7 methods)
 > - 这确保了公平对比：相同 baseline 基准（~37%），验证"多 Op 组合 > 单 Op > 无增强"
 > - Phase C 因贪心算法串行执行，无法多 GPU 并行；Phase D 可按 fold 分配到 4 GPU
 

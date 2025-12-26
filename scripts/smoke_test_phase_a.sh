@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Smoke Test Script for Prior-Guided Augmentation Policy Search
+# Smoke Test Script for Prior-Guided Augmentation Policy Search (v5.5)
 # =============================================================================
 # One-click full system validation with fail-fast behavior.
 #
+# v5.5 Notes:
+#   - Phase A now uses 40ep low-fidelity screening (default)
+#   - Smoke test uses 1ep for quick validation
+#
 # Usage:
-#   bash scripts/smoke_test.sh
+#   bash scripts/smoke_test_phase_a.sh
 #
 # Requirements:
 #   - conda environment 'pga' must exist
@@ -140,9 +144,9 @@ print_step "5" "7" "Model architecture self-test..."
 python src/test_arch.py
 
 # -----------------------------------------------------------------------------
-# Step 6: Phase A dry run
+# Step 6: Phase A dry run (v5.5: default is 40ep, smoke test uses 1ep)
 # -----------------------------------------------------------------------------
-print_step "6" "7" "Phase A dry run (epochs=1, n_samples=2)..."
+print_step "6" "7" "Phase A dry run (epochs=1, n_samples=2, v5.5 smoke test)..."
 
 # Create a temporary output directory for smoke test to avoid polluting user data
 SMOKE_OUTPUT_DIR="outputs/smoke_${TIMESTAMP}"
@@ -188,6 +192,9 @@ cat "$SMOKE_CSV"
 print_header "ALL TESTS PASSED"
 echo "Smoke test completed successfully at $(date)"
 echo "Results saved to: $SMOKE_CSV"
+echo ""
+echo "v5.5: Phase A now uses 40ep low-fidelity screening (default)"
+echo "      Smoke test uses 1ep for quick validation"
 echo ""
 
 exit 0
