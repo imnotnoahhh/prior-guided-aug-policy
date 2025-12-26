@@ -1,11 +1,8 @@
 # Phase C: Greedy Combination Search with Validation
 """
-Phase C: Greedy Combination Search with Validation (v7).
+Phase C: Greedy Combination Search with Validation.
 
-v7.0 CHANGED: Return to validated combination search.
-Reference: docs/research_plan_v7.md
-
-Algorithm (v7 Greedy Combination with Validation):
+Algorithm:
 1. Load Phase B results → get best (m, p) for each operation.
 2. Start with the single best operation.
 3. Greedy search: try adding complementary operations.
@@ -26,7 +23,6 @@ Usage:
     # Dry run
     python main_phase_c.py --dry_run
 """
-
 
 import argparse
 import csv

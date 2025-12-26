@@ -8,8 +8,6 @@
 
 **目标期刊/会议**: WACV / BMVC / ICIP 级别
 
-**版本**: v5.5
-
 ---
 
 ## 1. 基础信息
@@ -41,7 +39,7 @@
 |------|------|------|
 | **Optimizer** | SGD | |
 | **Learning Rate** | 0.1 | |
-| **Weight Decay** | **1e-2** | v5.4: 从 5e-3 增加到 1e-2，增强正则化 |
+| **Weight Decay** | **1e-2** | 增强正则化 |
 | **Momentum** | 0.9 | |
 | **Label Smoothing** | 0.1 | |
 | **Scheduler** | CosineAnnealingLR | T_max = epochs - warmup |
@@ -57,9 +55,9 @@
 
 | 阶段 | epochs | min_epochs | patience | 说明 |
 |------|--------|------------|----------|------|
-| **Phase A** | **40** | 20 | 15 | v5.5: 低保真快速筛选 |
+| **Phase A** | **40** | 20 | 15 | 低保真快速筛选 |
 | **Phase B** | ASHA | N/A | N/A | 多轮淘汰 (40→100→200 ep) |
-| **Phase C** | 200 | 60 | 60 | 策略构建 + 多数规则 |
+| **Phase C** | 200 | 60 | 60 | 策略构建 |
 | **Phase D** | 200 | 60 | 60 | 最终评估 |
 
 - **监控指标**: `val_acc` (mode="max")
@@ -78,21 +76,20 @@
 ### 2.2 搜索候选池 (8 个操作)
 
 ```python
-# v5.5: 更保守的搜索范围，避免"必炸区"
 OP_SEARCH_SPACE = {
-    # 温和操作 - 可用较高概率
-    "ColorJitter":       {"m": [0.1, 0.8], "p": [0.2, 0.8]},
-    "RandomGrayscale":   {"m": [0.5, 0.5], "p": [0.1, 0.6]},  # m 固定，只搜 p
-    "GaussianNoise":     {"m": [0.02, 0.25], "p": [0.2, 0.8]},  # v5.5: 缩小噪声范围
+    # 温和操作 - 可用较高概率和强度
+    "ColorJitter":       {"m": [0.1, 0.9], "p": [0.3, 0.9]},
+    "RandomGrayscale":   {"m": [0.5, 0.5], "p": [0.1, 0.7]},   # m 固定，只搜 p
+    "GaussianNoise":     {"m": [0.02, 0.4], "p": [0.3, 0.9]},
     
     # 中等操作
-    "RandomResizedCrop": {"m": [0.5, 0.95], "p": [0.3, 0.8]},  # v5.5: scale_min 提高
-    "RandomRotation":    {"m": [0.0, 0.4], "p": [0.2, 0.6]},   # ~0-18 度
-    "GaussianBlur":      {"m": [0.0, 0.3], "p": [0.2, 0.6]},
+    "RandomResizedCrop": {"m": [0.4, 0.95], "p": [0.3, 0.8]},
+    "RandomRotation":    {"m": [0.0, 0.5], "p": [0.2, 0.7]},    # ~0-22.5 度
+    "GaussianBlur":      {"m": [0.0, 0.5], "p": [0.2, 0.7]},
     
     # 破坏性操作 - 需低概率
-    "RandomErasing":     {"m": [0.02, 0.20], "p": [0.1, 0.5]},  # v5.5: 面积缩小
-    "RandomPerspective": {"m": [0.0, 0.25], "p": [0.1, 0.5]},   # v5.5: distortion 降低
+    "RandomErasing":     {"m": [0.02, 0.35], "p": [0.1, 0.6]},
+    "RandomPerspective": {"m": [0.0, 0.4], "p": [0.1, 0.6]},
 }
 ```
 
@@ -110,7 +107,7 @@ MUTUAL_EXCLUSION = {
 }
 ```
 
-### 2.4 破坏性权重 (v5.4 新增)
+### 2.4 破坏性权重
 
 用于组合多操作时自动调整概率，防止总体增广强度过高：
 
@@ -141,12 +138,12 @@ OP_DESTRUCTIVENESS = {
 |------|------|
 | **输入** | S0 + Op_i(m, p)（单操作） |
 | **采样** | 2D Sobol Sequence, 32 组/Op |
-| **训练** | **40 epochs** (v5.5), seed=42, Fold-0 |
+| **训练** | 40 epochs, seed=42, Fold-0 |
 | **评分** | `mean(top3(val_acc[30:40]))` - 更稳定 |
 | **实验量** | 8 ops × 32 点 = 256 组 |
 | **预计时间** | ~20-30min (4 GPU 并行) |
 
-**v5.5 低保真筛选原理**: 
+**低保真筛选原理**: 
 40ep 训练与 200ep 最终性能高度相关（通常 ρ > 0.8），但仅需 1/5 计算量。
 
 **晋级规则**: 每个 Op 选 8 个配置晋级 Phase B
@@ -164,13 +161,13 @@ OP_DESTRUCTIVENESS = {
 | **输入** | Phase A 晋级的 Ops (8 configs/Op) |
 | **采样** | Sobol Sequence, 30 组/Op |
 | **算法** | ASHA 早停淘汰赛 |
-| **Rungs** | **[40, 100, 200]** epochs (v5.5) |
+| **Rungs** | [40, 100, 200] epochs |
 | **Reduction Factor** | 1/2（每轮保留最好的一半） |
 | **Final Rung Multi-Seed** | 3 seeds 平均 (42, 123, 456) |
 | **实验量** | ~240 初始配置 → ~60 完成 200ep |
 | **预计时间** | ~2-4h (4 GPU 并行) |
 
-**v5.5 Rungs 对齐**: 40ep 与 Phase A 一致，便于 warm-start。
+**Rungs 对齐**: 40ep 与 Phase A 一致，便于 warm-start。
 
 **ASHA 优势**:
 - 采样更多点（不怕错过最优）
@@ -188,21 +185,20 @@ OP_DESTRUCTIVENESS = {
 | **算法** | Multi-Start Greedy Search |
 | **起点** | Top-K (默认 3) from Phase A + B |
 | **验证** | 3 Random Seeds × 200 epochs |
-| **判定阈值** | mean_acc > Acc(P) + **0.2%** (v5.5) |
+| **判定阈值** | mean_acc > Acc(P) + **0.1%** |
 | **最大操作数** | 3 个额外操作 |
 | **概率调整** | p_any_target = 0.5（50% 样本被增广） |
 | **预计时间** | ~1h (单 GPU) |
 
-**贪心算法流程 (v5.5 多数规则)**:
+**贪心算法流程**:
 1. 初始化 P = S0, Acc(P) = Baseline_200ep_acc
 2. 按 Phase B 排名，逐个尝试添加 Op(m*, p*)
 3. 检查互斥约束，训练 3 seeds × 200ep
-4. **接受条件 (v5.5 - 双条件)**:
-   - mean_acc > Acc(P) + 0.2% AND
-   - 多数 seed 有提升 (≥2/3 seeds improved)
+4. **接受条件**:
+   - mean_acc > Acc(P) + 0.1%
 5. 输出最终策略 P_final
 
-**概率调整机制 (v5.5 加入 magnitude)**:
+**概率调整机制**:
 
 当组合多个操作时，每个操作独立应用会导致总体增广强度过高。使用以下公式调整：
 
@@ -216,7 +212,7 @@ p'_i = clip(α × w_i × p_i, 0, 1)
 - α 由二分搜索求解，使得 P(至少一个增广) = p_any_target
 ```
 
-**v5.5 改进**: 同一操作，高 magnitude 会被更激进地降低概率。
+**同一操作，高 magnitude 会被更激进地降低概率。**
 
 **示例**:
 ```
@@ -232,7 +228,7 @@ P(至少一个) = 1 - (1-0.04)(1-0.47) = 49% ≈ 50% ✓
 **输出 JSON 格式**:
 ```json
 {
-  "version": "v5.5",
+  "version": "current",
   "p_any_target": 0.5,
   "ops": [
     {
@@ -263,10 +259,10 @@ P(至少一个) = 1 - (1-0.04)(1-0.47) = 49% ≈ 50% ✓
 |------|------|
 | **验证** | 5-Fold 交叉验证 |
 | **训练** | 200 epochs/fold, seed=42 |
-| **实验量** | **7 methods** × 5 folds = **35 组** (v5.5) |
+| **实验量** | 6 methods × 5 folds = 30 组 |
 | **预计时间** | ~0.5-1h (4 GPU 并行) |
 
-**对比方法 (7 个, v5.5)**:
+**对比方法 (6 个)**:
 
 | 方法 | 说明 | 参数 |
 |------|------|------|
@@ -274,7 +270,7 @@ P(至少一个) = 1 - (1-0.04)(1-0.47) = 49% ≈ 50% ✓
 | **Baseline-NoAug** | 无增强消融 | 仅 ToTensor |
 | **RandAugment** | 自动增强 SOTA | N=2, M=9 |
 | **Cutout** | 遮挡增强 SOTA | n_holes=1, length=16 |
-| **Best_SingleOp** | 单操作最优 (v5.5) | Phase B 最佳单操作 |
+| **Best_SingleOp** | 单操作最优 | Phase B 最佳单操作 |
 | **Ours_p1** | 消融对照 | 策略使用 probability_original |
 | **Ours_optimal** | 最终方法 | 策略使用 probability_adjusted |
 
@@ -298,12 +294,12 @@ Ours_optimal ≥ RandAugment > Baseline > Baseline-NoAug
 - `RandAugment > Baseline`: SOTA 方法优于基础增强
 - `Baseline > Baseline-NoAug`: 基础增强有明显价值
 
-### 4.2 消融验证 (v5.5)
+### 4.2 消融验证
 
 | 对比 | 验证目标 |
 |------|----------|
 | `Ours_optimal > Ours_p1` | 概率优化 + magnitude 调整的价值 |
-| `Ours_optimal > Best_SingleOp` | 多操作组合的价值 (v5.5 新增) |
+| `Ours_optimal > Best_SingleOp` | 多操作组合的价值 |
 | `Ours_optimal > Baseline` | 搜索策略的整体价值 |
 | `Baseline > Baseline-NoAug` | 基础增强的价值 |
 
@@ -365,7 +361,7 @@ outputs/
 ├── phase_b_tuning_raw.csv        # Phase B 原始结果
 ├── phase_b_tuning_summary.csv    # Phase B 汇总结果
 ├── phase_c_history.csv           # Phase C 组合历史
-├── phase_c_final_policy.json     # Phase C 最终策略 (v5.4 格式)
+├── phase_c_final_policy.json     # Phase C 最终策略
 ├── phase_d_results.csv           # Phase D 原始结果
 ├── phase_d_summary.csv           # Phase D 汇总结果 (论文用)
 └── checkpoints/
@@ -388,7 +384,7 @@ outputs/
 | **Phase B** | `main_phase_b.py` | ASHA 深度微调 |
 | **Phase C** | `main_phase_c.py` | 贪心组合 + 概率调整 |
 | **Phase D** | `main_phase_d.py` | SOTA 对比 |
-| **一键脚本** | `scripts/train_multi_gpu.sh` | 完整训练流程 |
+| **一键脚本** | `scripts/train_single_gpu.sh` | 完整训练流程 |
 
 ---
 
