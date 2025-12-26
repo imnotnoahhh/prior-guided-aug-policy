@@ -7,21 +7,21 @@ Implements:
 - Candidate Pool: 8 operations with magnitude [0,1] to physical parameter mapping
 - Probabilistic application: each operation can be applied with probability p
 - Mutual exclusion handling for conflicting operations
-- Combination probability adjustment for multi-op policies (v5.4)
+- Combination probability adjustment for multi-op policies (
 
-Reference: docs/research_plan_v5.md Section 2
+Reference: docs/research_plan.md Section 2
 
 Changelog (v4 → v5):
 - [NEW] ProbabilisticTransform: wrapper for stochastic application
 - [NEW] OP_SEARCH_SPACE: per-operation (m, p) search ranges
 - [CHANGED] build_transform_with_op: now accepts probability parameter
 
-Changelog (v5.4):
+Changelog (:
 - [NEW] OP_DESTRUCTIVENESS: per-operation destructiveness weights
 - [NEW] adjust_probabilities_for_combination: control total augmentation intensity
 - [CHANGED] RandomErasing p range expanded to [0.1, 0.5]
 
-Changelog (v5.5):
+Changelog (:
 - [CHANGED] OP_SEARCH_SPACE: more conservative ranges to avoid "必炸区"
 - [CHANGED] adjust_probabilities_for_combination: now considers magnitude (w = 1 - d * g(m))
 - [NEW] magnitude_influence function for weighted probability adjustment
@@ -37,14 +37,14 @@ from PIL import Image
 
 
 # =============================================================================
-# v5 NEW: Per-Operation Search Space Configuration
+# 
 # =============================================================================
 
 # Per-operation search space configuration
 # Each operation has customized (magnitude, probability) search ranges.
 # This embodies prior knowledge about which operations are "destructive" vs "mild".
 # Format: {"op_name": {"m": [min, max], "p": [min, max]}}
-# Reference: research_plan_v5.md Section 2.2
+# Reference: research_plan.md Section 2.2
 #
 # NOTE: RandomGrayscale is binary (full grayscale or none), so magnitude has no effect.
 #       We set m to a fixed value [0.5, 0.5] to avoid wasting search budget.
@@ -67,7 +67,7 @@ OP_SEARCH_SPACE: Dict[str, Dict[str, List[float]]] = {
 
 
 # =============================================================================
-# v5.4 NEW: Operation Destructiveness Weights
+
 # =============================================================================
 
 # Destructiveness weight for each operation (0=no destruction, 1=full destruction)
@@ -88,7 +88,7 @@ OP_DESTRUCTIVENESS: Dict[str, float] = {
 def magnitude_influence(m: float) -> float:
     """Map magnitude [0,1] to influence factor [0,1].
     
-    v5.5: Linear mapping. Higher magnitude → stronger influence on weight reduction.
+    
     Can be changed to m**2 for more conservative high-magnitude handling.
     
     Args:
@@ -111,7 +111,7 @@ def adjust_probabilities_for_combination(
     the overall augmentation intensity can become too strong. This function adjusts
     individual probabilities to maintain a target "at least one augmentation" rate.
     
-    v5.5 Algorithm (with magnitude):
+    Algorithm (with magnitude):
     1. Define weight w_i = 1 - d_i × g(m_i)
        - d_i: destructiveness of operation i
        - g(m_i): magnitude influence (linear by default)
@@ -123,7 +123,7 @@ def adjust_probabilities_for_combination(
         p_any_target: Target probability that at least one augmentation is applied.
                       Default 0.5 (50% of images get at least one augmentation).
         use_magnitude: If True, incorporate magnitude into weight calculation.
-                       Default True (v5.5 behavior).
+                       Default True (.
     
     Returns:
         Adjusted list of (op_name, magnitude, adjusted_probability) tuples.
@@ -144,7 +144,7 @@ def adjust_probabilities_for_combination(
     probs = np.array([op[2] for op in ops], dtype=np.float64)
     
     # Compute weights: w_i = 1 - d_i × g(m_i)
-    # v5.5: Now considers magnitude - higher m means more aggressive reduction
+    
     weights = []
     for i, name in enumerate(names):
         d = OP_DESTRUCTIVENESS.get(name, 0.5)
@@ -154,7 +154,7 @@ def adjust_probabilities_for_combination(
             g_m = magnitude_influence(m)
             w = 1.0 - d * g_m
         else:
-            # v5.4 behavior: only use destructiveness
+            
             w = 1.0 - d
         
         weights.append(max(0.0, min(1.0, w)))
@@ -205,7 +205,7 @@ def adjust_probabilities_for_combination(
 
 
 # =============================================================================
-# v5 NEW: Probabilistic Transform Wrapper
+# 
 # =============================================================================
 
 class ProbabilisticTransform(nn.Module):
@@ -255,7 +255,7 @@ class ProbabilisticTransform(nn.Module):
 
 
 # =============================================================================
-# v6 NEW: Dynamic Augmentation (Prior-Guided RandAugment)
+
 # =============================================================================
 
 class DynamicAugment(nn.Module):
@@ -391,7 +391,7 @@ class AugmentationSpace:
     def get_search_space(op_name: str) -> Dict[str, List[float]]:
         """Get the (m, p) search space for a given operation.
         
-        v5 NEW: Returns customized search ranges per operation.
+        
         
         Args:
             op_name: Name of the operation.
@@ -651,7 +651,7 @@ def create_op_transform(op_name: str, magnitude: float) -> Callable:
         )
     
     elif op_name == "RandomGrayscale":
-        # v5 FIX: RandomGrayscale's internal p is now always 1.0
+        # 
         # The application probability is controlled by ProbabilisticTransform wrapper
         # magnitude has no effect on this op (grayscale is binary: full or none)
         return transforms.RandomGrayscale(p=1.0)
@@ -717,7 +717,7 @@ def build_transform_with_op(
 ) -> transforms.Compose:
     """Build complete transform pipeline with S0 + single candidate op.
     
-    v5 CHANGED: Added probability parameter for stochastic application.
+    
     
     Handles mutual exclusion:
     - If op_name == "RandomResizedCrop": skip S0's RandomCrop (use RRC instead)
@@ -764,7 +764,7 @@ def build_transform_with_op(
     # Add candidate operation with probability wrapper
     op_transform = create_op_transform(op_name, magnitude)
     
-    # v5: Wrap with ProbabilisticTransform if probability < 1.0
+    
     if probability < 1.0:
         op_transform = ProbabilisticTransform(op_transform, p=probability)
     
@@ -1044,7 +1044,7 @@ if __name__ == "__main__":
     assert not AugmentationSpace.is_mutually_exclusive("ColorJitter", "GaussianBlur")
     print("      ✓ Mutual exclusion detection works")
     
-    # v5: Test ProbabilisticTransform
+    
     print("\n[v5-1] Testing ProbabilisticTransform wrapper...")
     # Test p=0: should never apply
     dummy_transform = transforms.Lambda(lambda x: x * 2)
@@ -1072,7 +1072,7 @@ if __name__ == "__main__":
     assert 0.4 < ratio < 0.6, f"p=0.5 should apply ~50%, got {ratio:.2%}"
     print(f"      ✓ p=0.5 works (applied {ratio:.1%} of {n_trials} trials)")
     
-    # v5: Test OP_SEARCH_SPACE
+    
     print("\n[v5-2] Testing OP_SEARCH_SPACE configuration...")
     for op_name in AugmentationSpace.get_available_ops():
         space = AugmentationSpace.get_search_space(op_name)
@@ -1085,7 +1085,7 @@ if __name__ == "__main__":
         print(f"      {op_name}: m=[{m_min:.2f}, {m_max:.2f}], p=[{p_min:.2f}, {p_max:.2f}]")
     print("      ✓ All operations have valid search spaces")
     
-    # v5: Test build_transform_with_op with probability
+    
     print("\n[v5-3] Testing build_transform_with_op with probability...")
     for op_name in AugmentationSpace.get_available_ops():
         transform = build_transform_with_op(op_name, magnitude=0.5, probability=0.5)
@@ -1096,7 +1096,7 @@ if __name__ == "__main__":
     print("      ✓ All pipelines work with probability parameter")
     
     print("\n" + "=" * 60)
-    print("SUCCESS: Augmentation logic check passed (v5 features included).")
+    print("SUCCESS: Augmentation logic check passed .")
     print("=" * 60)
     
     sys.exit(0)

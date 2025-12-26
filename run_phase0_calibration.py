@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Phase 0: Hyperparameter Calibration (v5.5)
+Phase 0: Hyperparameter Calibration (
 
 Purpose: Find optimal (weight_decay, label_smoothing) combination before main experiments.
 This ensures the "fixed hyperparameters" are data-driven and defensible in paper.
@@ -276,7 +276,7 @@ def run_calibration(args):
     epochs = args.epochs if not args.dry_run else 5
     
     print("=" * 70)
-    print("Phase 0: Hyperparameter Calibration (v5.5)")
+    print("Phase 0: Hyperparameter Calibration (
     print("=" * 70)
     print(f"Device: {device}")
     print(f"Epochs: {epochs}")

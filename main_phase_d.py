@@ -4,7 +4,7 @@ Phase D: SOTA Benchmark Comparison Script.
 
 Runs 5-fold cross-validation comparing our method against SOTA baselines.
 
-Reference: docs/research_plan_v5.md Section 3 (Phase D)
+Reference: docs/research_plan.md Section 3 (Phase D)
 
 Methods compared:
 1. Baseline: S0 only (RandomCrop + HorizontalFlip)
@@ -54,9 +54,9 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.augmentations import (
     build_transform_with_ops,
-    build_transform_with_op,  # v5.5: for Best_SingleOp
+    build_transform_with_op,  
     build_ours_p1_transform,
-    build_dynamic_transform,  # v6: Dynamic
+    build_dynamic_transform,  
     get_baseline_transform,
     get_randaugment_transform,
     get_cutout_transform,
@@ -81,11 +81,11 @@ from src.utils import (
 # =============================================================================
 
 # Available methods for comparison
-# v5.4: Added "Baseline-NoAug" for ablation (no augmentation at all)
-# v5.5: Added "Best_SingleOp" for ablation (best single operation from Phase B)
+
+
 AVAILABLE_METHODS = ["Baseline", "Baseline-NoAug", "RandAugment", "Cutout", "Best_SingleOp", "Ours_p1", "Ours_optimal"]
 
-# v5.5: Global variable to store best single op config (loaded from Phase B)
+
 BEST_SINGLE_OP_CONFIG = None  # Will be set to (op_name, magnitude, probability)
 
 
@@ -168,7 +168,7 @@ def get_method_description(method_name: str) -> str:
         "Ours_p1": "Ours (p=1.0 ablation)",
         "Ours_optimal": "Ours (optimal p, adjusted)",
     }
-    # v5.5: Add specific op info for Best_SingleOp
+    
     if method_name == "Best_SingleOp" and BEST_SINGLE_OP_CONFIG:
         op_name, m, p = BEST_SINGLE_OP_CONFIG
         return f"Best single: {op_name}(m={m:.2f}, p={p:.2f})"
@@ -182,7 +182,7 @@ def get_method_description(method_name: str) -> str:
 def load_policy(json_path: Path, use_adjusted: bool = True):
     """Load policy from Phase C JSON file.
     
-    v6.0: Supports Dynamic Policy format.
+    Supports Dynamic Policy format.
     
     Returns:
         For Dynamic: Tuple[List[ops], n_ops, "dynamic"]
@@ -376,7 +376,7 @@ def train_single_config(
         if device.type == "cuda":
             scaler = torch.amp.GradScaler()
         
-        # Early stopping (v5.4: same settings as Phase A/B for consistency)
+        # Early stopping (
         early_stopper = EarlyStopping(
             patience=early_stop_patience,  # Default 80 for Phase D
             mode="max",  # Monitor val_acc (higher is better)
@@ -573,7 +573,7 @@ def aggregate_results(raw_csv_path: Path, summary_csv_path: Path) -> pd.DataFram
 def run_phase_d(
     output_dir: Path,
     policy_json: Optional[Path] = None,
-    phase_b_csv: Optional[Path] = None,  # v5.5: for Best_SingleOp
+    phase_b_csv: Optional[Path] = None,  
     methods: Optional[List[str]] = None,
     folds: Optional[List[int]] = None,
     epochs: int = 200,
@@ -587,7 +587,7 @@ def run_phase_d(
 ) -> pd.DataFrame:
     """Run Phase D benchmark comparison.
     
-    v5.5: Added phase_b_csv parameter for Best_SingleOp method.
+    
     
     Args:
         output_dir: Directory for output files.
@@ -635,7 +635,7 @@ def run_phase_d(
                 policy_json = main_policy_path  # For error message
         
         if policy_json.exists():
-            # v6.0: Load policy (can be static list or dynamic tuple)
+            
             policy_data = load_policy(policy_json, use_adjusted=True)
             
             # Check if dynamic
@@ -671,7 +671,7 @@ def run_phase_d(
             policy_original = None
             policy_adjusted = None
     
-    # v5.5: Load Best_SingleOp configuration from Phase B summary
+    
     global BEST_SINGLE_OP_CONFIG
     if "Best_SingleOp" in methods:
         if phase_b_csv is None:
@@ -731,7 +731,7 @@ def run_phase_d(
         print("=" * 70)
         
         try:
-            # v5.4: Use appropriate policy version for each method
+            
             if method_name == "Ours_p1":
                 method_policy = policy_original
             elif method_name == "Ours_optimal":
@@ -762,7 +762,7 @@ def run_phase_d(
                 epochs=train_epochs,
                 device=device,
                 fold_idx=fold_idx,
-                policy=method_policy,  # v5.4: Use method-specific policy
+                policy=method_policy,  
                 num_workers=num_workers,
                 early_stop_patience=early_stop_patience,
                 deterministic=deterministic,
@@ -948,14 +948,14 @@ def main() -> int:
         print("MODE: DRY RUN")
     print("=" * 70)
     
-    # v5.5: Parse phase_b_csv
+    
     phase_b_csv = Path(args.phase_b_csv) if args.phase_b_csv else None
     
     try:
         run_phase_d(
             output_dir=output_dir,
             policy_json=policy_json,
-            phase_b_csv=phase_b_csv,  # v5.5: for Best_SingleOp
+            phase_b_csv=phase_b_csv,  
             methods=methods,
             folds=folds,
             epochs=args.epochs,

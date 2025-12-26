@@ -148,7 +148,7 @@ def run_baseline(
     if device.type == "cuda":
         scaler = torch.amp.GradScaler()
     
-    # Early stopping (v5.1 strategy: monitor val_acc, mode="max")
+    # Early stopping 
     early_stopper = EarlyStopping(
         patience=early_stop_patience,
         mode="max",  # Monitor val_acc

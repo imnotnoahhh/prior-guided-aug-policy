@@ -13,10 +13,12 @@
 在极少样本（每类 100 张）限制下，通过先验引导的搜索找到最优增强策略。
 
 * **核心假设**: 精选的操作组合 ≥ 盲目的 RandAugment（或至少相当，但更高效）。
-* **三阶段搜索管道**:
-    1. Phase A: 广度筛选有效操作
-    2. Phase B: 深度调参找最佳 (m, p)
-    3. Phase C: 贪心组合搜索 + 验证
+* **四阶段搜索管道**:
+    1. Phase 0: 超参校准（确定 weight_decay, label_smoothing）
+    2. Phase A: 广度筛选有效操作
+    3. Phase B: 深度调参找最佳 (m, p)
+    4. Phase C: 贪心组合搜索 + 验证
+* **最终评估**: Phase D: 5-Fold 交叉验证对比 SOTA
 
 ---
 
@@ -60,6 +62,17 @@ MUTUAL_EXCLUSION = {
 ---
 
 ## 3. 实验流程
+
+### 3.0 Phase 0: 超参校准 (Hyperparameter Calibration)
+
+**目标**: 确定最优正则化参数组合
+
+| 项目 | 配置 |
+|------|------|
+| **候选** | weight_decay ∈ {1e-4, 1e-3, 1e-2, 5e-2}, label_smoothing ∈ {0.0, 0.1, 0.2} |
+| **训练** | 100 epochs, 3 seeds, Fold-0 |
+| **选择** | 按 mean_val_acc 选最佳组合 |
+| **输出** | `outputs/phase0_summary.csv` |
 
 ### 3.1 Phase A: 广度筛选 (Low-Fidelity Screening)
 
@@ -125,7 +138,7 @@ MUTUAL_EXCLUSION = {
 3. 返回 current_policy
 ```
 
-### 3.4 Phase D: SOTA 对比 (Benchmark Comparison)
+### 3.5 Phase D: SOTA 对比 (Benchmark Comparison)
 
 **目标**: 证明方法优于或接近现有 SOTA
 
@@ -133,7 +146,7 @@ MUTUAL_EXCLUSION = {
 |------|------|
 | **验证** | 5-Fold 交叉验证 |
 | **训练** | 200 epochs/fold |
-| **方法** | Baseline, RandAugment, Cutout, Best_SingleOp, Ours_p1, Ours_optimal |
+| **方法** | Baseline, Baseline-NoAug, RandAugment, Cutout, Best_SingleOp, Ours_p1, Ours_optimal (7 个) |
 
 ---
 
@@ -143,8 +156,8 @@ MUTUAL_EXCLUSION = {
 |------|------|
 | Model | ResNet-18 |
 | Optimizer | SGD (lr=0.1, momentum=0.9) |
-| Weight Decay | Phase 0 搜索确定 |
-| Label Smoothing | Phase 0 搜索确定 |
+| Weight Decay | 1e-2 (Phase 0 确定) |
+| Label Smoothing | 0.1 (Phase 0 确定) |
 | Scheduler | CosineAnnealingLR + Warmup 5 epochs |
 | Epochs | 200 |
 | Batch Size | 128 |

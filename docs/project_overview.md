@@ -205,7 +205,7 @@ OP_DESTRUCTIVENESS = {
 ```
 p'_i = clip(α × w_i × p_i, 0, 1)
 
-其中 (v5.5):
+其中:
 - w_i = 1 - d_i × g(m_i)
 - d_i: 操作的破坏性权重
 - g(m_i): magnitude 影响因子 (线性映射, g(m) = m)

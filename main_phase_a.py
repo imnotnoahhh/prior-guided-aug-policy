@@ -2,24 +2,11 @@
 """
 Phase A: Augmentation Screening Script.
 
-v5.5 CHANGED: Low-fidelity screening with 40 epochs (multi-fidelity principle).
 
 Evaluates each candidate augmentation operation with Sobol-sampled (m, p) pairs.
 Each operation uses customized search ranges from OP_SEARCH_SPACE.
 Uses short training (40ep) to rapidly identify promising candidates.
 
-Reference: docs/research_plan_v5.md Section 3 (Phase A)
-
-Changelog (v4 → v5):
-- [CHANGED] Sobol sampling: 1D (magnitude) → 2D (magnitude, probability)
-- [NEW] Per-operation search space from OP_SEARCH_SPACE
-- [CHANGED] CSV output includes actual probability values
-
-Changelog (v5.5):
-- [CHANGED] epochs: 200 → 40 (low-fidelity screening)
-- [CHANGED] Scoring: mean(top3(val_acc[30:40])) for better stability
-- [NEW] Promotion rule: Top-6 + 2 diversity picks per operation
-- [CHANGED] min_epochs/patience adjusted for 40ep
 
 Usage:
     # Full run (40 epochs, 32 samples per op)
@@ -70,7 +57,7 @@ from src.utils import (
 
 
 # =============================================================================
-# 2D Sobol Sampling (v5)
+# 2D Sobol Sampling
 # =============================================================================
 
 def generate_sobol_samples_2d(
@@ -80,41 +67,41 @@ def generate_sobol_samples_2d(
     seed: int = 42,
 ) -> np.ndarray:
     """Generate 2D Sobol sequence samples for (magnitude, probability).
+
     
-    v5 NEW: 2D sampling in (m, p) space with per-operation ranges.
-    
+
     Sobol sequences provide better coverage than random sampling
     for low-dimensional parameter spaces.
-    
+
     Args:
         n_samples: Number of samples to generate.
         m_range: (min, max) for magnitude.
         p_range: (min, max) for probability.
         seed: Random seed for scrambling.
-        
+
     Returns:
         Array of shape (n_samples, 2) where [:, 0] is magnitude, [:, 1] is probability.
     """
     from scipy.stats.qmc import Sobol
-    
+
     # Sobol sampler for 2D (magnitude, probability)
     sampler = Sobol(d=2, scramble=True, seed=seed)
     samples = sampler.random(n_samples)  # Shape: (n_samples, 2) in [0, 1]
-    
+
     # Scale to actual ranges
     m_min, m_max = m_range
     p_min, p_max = p_range
-    
+
     samples[:, 0] = m_min + samples[:, 0] * (m_max - m_min)  # magnitude
     samples[:, 1] = p_min + samples[:, 1] * (p_max - p_min)  # probability
-    
+
     return samples
 
 
 # Legacy function for backward compatibility
 def generate_sobol_samples(n_samples: int, seed: int = 42) -> np.ndarray:
     """Generate 1D Sobol sequence samples in [0, 1] (legacy).
-    
+
     DEPRECATED: Use generate_sobol_samples_2d for v5 experiments.
     """
     from scipy.stats.qmc import Sobol
@@ -143,11 +130,11 @@ def train_single_config(
     label_smoothing: float = 0.1,
 ) -> Dict:
     """Train one configuration and return metrics.
+
     
-    v5 CHANGED: Added probability parameter for stochastic application.
-    v5.1 CHANGED: Updated early stopping to monitor val_acc with min_epochs.
-    v5.2 CHANGED: Optimized training (bs=128, lr=0.1, warmup=5, label_smoothing=0.1).
     
+    
+
     Args:
         op_name: Name of the augmentation operation.
         magnitude: Magnitude value in [0, 1].
@@ -161,14 +148,14 @@ def train_single_config(
         min_epochs: Minimum epochs before early stopping. Default 80 for Phase A.
         seed: Random seed for reproducibility.
         deterministic: If True, enable deterministic CUDA mode.
-        
+
     Returns:
         Dict with unified CSV format fields.
     """
     start_time = time.time()
     set_seed_deterministic(seed, deterministic=deterministic)
-    
-    # Initialize result with unified format (v5.5: added stable_score)
+
+    # Initialize result with unified format
     result = {
         "phase": "PhaseA",
         "op_name": op_name,
@@ -187,10 +174,10 @@ def train_single_config(
         "runtime_sec": 0.0,
         "timestamp": "",
         "error": "",
-        "stable_score": -1.0,  # v5.5: new field for scoring
+        "stable_score": -1.0,
     }
-    
-    # Build transforms (v5: with probability)
+
+    # Build transforms
     train_transform = build_transform_with_op(
         op_name=op_name,
         magnitude=magnitude,
@@ -199,7 +186,7 @@ def train_single_config(
         include_normalize=False,  # Keep in [0, 1] for augmentations
     )
     val_transform = get_val_transform(include_normalize=False)
-    
+
     # Create datasets
     train_dataset = CIFAR100Subsampled(
         root="./data",
@@ -208,7 +195,7 @@ def train_single_config(
         transform=train_transform,
         download=True,
     )
-    
+
     val_dataset = CIFAR100Subsampled(
         root="./data",
         train=False,
@@ -216,7 +203,7 @@ def train_single_config(
         transform=val_transform,
         download=True,
     )
-    
+
     # Create data loaders with optimized settings for large batch
     use_cuda = device.type == "cuda"
     train_loader = DataLoader(
@@ -229,7 +216,7 @@ def train_single_config(
         persistent_workers=True if num_workers > 0 else False,
         prefetch_factor=4 if num_workers > 0 else None,  # Increased from 2 to 4
     )
-    
+
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
@@ -240,16 +227,16 @@ def train_single_config(
         persistent_workers=True if num_workers > 0 else False,
         prefetch_factor=4 if num_workers > 0 else None,  # Increased from 2 to 4
     )
-    
+
     # Create model with channels_last memory format for better GPU performance
     model = create_model(num_classes=100, pretrained=False)
     model = model.to(device)
     if use_cuda:
         model = model.to(memory_format=torch.channels_last)
-    
+
     # Loss function (with label smoothing for regularization)
     criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
-    
+
     # Optimizer and scheduler
     optimizer, scheduler = get_optimizer_and_scheduler(
         model=model,
@@ -259,13 +246,13 @@ def train_single_config(
         momentum=0.9,
         warmup_epochs=5,
     )
-    
+
     # AMP scaler (only for CUDA)
     scaler = None
     if device.type == "cuda":
         scaler = torch.amp.GradScaler()
-    
-    # Early stopping (v5.1: monitor val_acc, not val_loss)
+
+    # Early stopping
     # min_epochs=100 ensures Cosine LR has time to work before early stopping kicks in
     # min_delta=0.2 filters noise (val_acc fluctuates ±2-3%)
     early_stopper = EarlyStopping(
@@ -274,9 +261,9 @@ def train_single_config(
         min_epochs=min_epochs,
         min_delta=0.2,  # 0.2 percentage points
     )
-    
+
     # Training loop - track all metrics
-    # v5.5: Also track val_acc history for scoring
+
     best_val_acc = 0.0
     best_val_loss = float("inf")
     best_top5_acc = 0.0
@@ -284,8 +271,8 @@ def train_single_config(
     best_train_loss = 0.0
     best_epoch = 0
     early_stopped = False
-    val_acc_history = []  # v5.5: for scoring
-    
+    val_acc_history = []
+
     for epoch in range(epochs):
         # Train one epoch
         train_loss, train_acc = train_one_epoch(
@@ -296,7 +283,7 @@ def train_single_config(
             device=device,
             scaler=scaler,
         )
-        
+
         # Evaluate
         val_loss, val_acc, top5_acc = evaluate(
             model=model,
@@ -304,10 +291,10 @@ def train_single_config(
             criterion=criterion,
             device=device,
         )
-        
-        # v5.5: Record history for scoring
+
+
         val_acc_history.append(val_acc)
-        
+
         # Update best metrics (by val_acc)
         if val_acc > best_val_acc:
             best_val_acc = val_acc
@@ -316,31 +303,31 @@ def train_single_config(
             best_train_acc = train_acc
             best_train_loss = train_loss
             best_epoch = epoch + 1
-        
+
         # Step scheduler
         scheduler.step()
-        
-        # Early stopping check (v5.1: monitor val_acc, not val_loss)
+
+        # Early stopping check
         if early_stopper(val_acc, epoch):
             result["epochs_run"] = epoch + 1
             early_stopped = True
             break
-        
+
         result["epochs_run"] = epoch + 1
-    
-    # v5.5: Compute stable score using top-3 from last 10 epochs
+
+
     # For 40ep: use epochs 30-40; for shorter runs: use last 1/4
     if len(val_acc_history) >= 10:
         last_quarter = val_acc_history[-10:]
     else:
         last_quarter = val_acc_history[-(len(val_acc_history)//4 + 1):]
-    
+
     if len(last_quarter) >= 3:
         top3_vals = sorted(last_quarter, reverse=True)[:3]
         stable_score = sum(top3_vals) / 3
     else:
         stable_score = best_val_acc
-    
+
     # Final results with unified format
     result["val_acc"] = round(best_val_acc, 4)
     result["val_loss"] = round(best_val_loss, 6)
@@ -351,8 +338,8 @@ def train_single_config(
     result["early_stopped"] = early_stopped
     result["runtime_sec"] = round(time.time() - start_time, 2)
     result["timestamp"] = datetime.now().isoformat(timespec='seconds')
-    result["stable_score"] = round(stable_score, 4)  # v5.5: new field
-    
+    result["stable_score"] = round(stable_score, 4)
+
     return result
 
 
@@ -366,35 +353,35 @@ def write_csv_row(
     write_header: bool,
 ) -> None:
     """Append one row to CSV with immediate flush.
-    
+
     Uses unified CSV format for all phases.
-    
+
     Args:
         path: Path to CSV file.
         row: Dict representing one row.
         write_header: If True, write header before row.
     """
-    # Unified CSV fieldnames (v5.5: added stable_score)
+    # Unified CSV fieldnames
     fieldnames = [
         "phase", "op_name", "magnitude", "probability", "seed", "fold_idx",
         "val_acc", "val_loss", "top5_acc", "train_acc", "train_loss",
         "epochs_run", "best_epoch", "early_stopped", "runtime_sec",
         "timestamp", "error", "stable_score"
     ]
-    
+
     # Ensure parent directory exists
     path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # Open in append mode with line buffering
     with open(path, mode="a", buffering=1, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
-        
+
         if write_header:
             writer.writeheader()
-        
+
         writer.writerow(row)
         f.flush()
-        
+
         # Extra safety: sync to disk
         try:
             os.fsync(f.fileno())
@@ -404,15 +391,15 @@ def write_csv_row(
 
 def check_csv_needs_header(path: Path) -> bool:
     """Check if CSV file needs a header.
-    
+
     Returns True if file doesn't exist or is empty.
     """
     if not path.exists():
         return True
-    
+
     if path.stat().st_size == 0:
         return True
-    
+
     return False
 
 
@@ -425,70 +412,70 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Phase A: Augmentation Screening with Sobol Sampling"
     )
-    
+
     parser.add_argument(
         "--epochs",
         type=int,
         default=40,
-        help="Number of training epochs per config (default: 40, v5.5 low-fidelity)"
+        help="Number of training epochs per config (default: 40)"
     )
-    
+
     parser.add_argument(
         "--n_samples",
         type=int,
         default=32,
         help="Number of Sobol samples per operation (default: 32)"
     )
-    
+
     parser.add_argument(
         "--n_promote",
         type=int,
         default=8,
         help="Number of configs to promote per operation (default: 8 = Top-6 + 2 diversity)"
     )
-    
+
     parser.add_argument(
         "--fold_idx",
         type=int,
         default=0,
         help="Which fold to use for search (default: 0)"
     )
-    
+
     parser.add_argument(
         "--output_dir",
         type=str,
         default="outputs",
         help="Output directory for results (default: outputs)"
     )
-    
+
     parser.add_argument(
         "--seed",
         type=int,
         default=42,
         help="Random seed (default: 42)"
     )
-    
+
     parser.add_argument(
         "--num_workers",
         type=int,
         default=8,
         help="Number of data loading workers (default: 8)"
     )
-    
+
     parser.add_argument(
         "--early_stop_patience",
         type=int,
         default=15,
-        help="Early stopping patience (default: 15 for 40ep, v5.5)"
+        help="Early stopping patience (default: 15 for 40ep)"
     )
-    
+
     parser.add_argument(
         "--min_epochs",
         type=int,
         default=20,
-        help="Minimum epochs before early stopping (default: 20 for 40ep, v5.5)"
+        help="Minimum epochs before early stopping (default: 20 for 40ep)"
     )
-    
+
     parser.add_argument(
         "--ops",
         type=str,
@@ -496,22 +483,22 @@ def parse_args() -> argparse.Namespace:
         help="Comma-separated list of ops to evaluate (default: all ops). "
              "Example: --ops RandomRotation,ColorJitter"
     )
-    
+
     return parser.parse_args()
 
 
 def main() -> int:
     """Main entry point.
-    
+
     Returns:
         Exit code (0 for success).
     """
     args = parse_args()
-    
+
     # Setup
     set_seed_deterministic(args.seed, deterministic=True)
     device = get_device()
-    
+
     # Load Phase 0 hyperparameters if available
     phase0_cfg = load_phase0_best_config()
     wd = phase0_cfg[0] if phase0_cfg else 1e-2
@@ -520,7 +507,7 @@ def main() -> int:
         print(f"[Phase0] Using recommended hyperparams: wd={wd}, ls={ls}")
     else:
         print("[Phase0] phase0_summary.csv not found; fallback to defaults wd=1e-2, ls=0.1")
-    
+
     print("=" * 70)
     print("Phase A: Augmentation Screening")
     print("=" * 70)
@@ -537,18 +524,18 @@ def main() -> int:
     print(f"v5: 2D Sobol samples per op: {args.n_samples}")
     print(f"Search space: (magnitude, probability) from OP_SEARCH_SPACE")
     print("=" * 70)
-    
+
     # Output path
     output_dir = Path(args.output_dir)
     ensure_dir(output_dir)
     csv_path = output_dir / "phase_a_results.csv"
-    
+
     # Check if we need to write header
     write_header = check_csv_needs_header(csv_path)
-    
+
     # Get available operations
     all_ops = AugmentationSpace.get_available_ops()
-    
+
     # Filter ops if --ops is specified
     if args.ops:
         ops = [op.strip() for op in args.ops.split(",")]
@@ -560,20 +547,20 @@ def main() -> int:
             return 1
     else:
         ops = all_ops
-    
+
     print(f"Operations to evaluate: {len(ops)}")
     print(f"Operations: {ops}")
-    
-    # v5: Generate 2D Sobol samples for each operation with customized ranges
+
+
     configs = []
     print(f"\nGenerating {args.n_samples} Sobol samples per operation...")
-    
+
     for op_name in ops:
         # Get per-operation search space
         space = OP_SEARCH_SPACE[op_name]
         m_range = tuple(space["m"])
         p_range = tuple(space["p"])
-        
+
         # Generate 2D Sobol samples for this operation
         samples = generate_sobol_samples_2d(
             n_samples=args.n_samples,
@@ -581,28 +568,28 @@ def main() -> int:
             p_range=p_range,
             seed=args.seed,
         )
-        
+
         # Add to configs: (op_name, magnitude, probability)
         for i in range(len(samples)):
             mag, prob = samples[i, 0], samples[i, 1]
             configs.append((op_name, float(mag), float(prob)))
-        
+
         print(f"  {op_name}: m∈{m_range}, p∈{p_range} → {len(samples)} samples")
-    
+
     # Limit configs for dry run
     if args.n_samples <= 2:
         configs = configs[:args.n_samples]
         print(f"Dry run mode: only running {len(configs)} configs")
-    
+
     print(f"\nTotal configurations: {len(configs)}")
     print("-" * 70)
-    
+
     # Main loop with tqdm on outermost level
     success_count = 0
     error_count = 0
     total_start_time = time.time()
-    
-    # v5: configs are now (op_name, magnitude, probability) tuples
+
+
     for op_name, magnitude, probability in tqdm(configs, desc="Phase A Screening", unit="config"):
         try:
             # Train and evaluate this configuration
@@ -621,13 +608,13 @@ def main() -> int:
                 label_smoothing=ls,
             )
             success_count += 1
-            
+
         except Exception as e:
             # Log error but continue
             error_msg = f"{type(e).__name__}: {str(e)}"
             print(f"\nERROR in {op_name} (m={magnitude:.4f}, p={probability:.4f}): {error_msg}")
             traceback.print_exc()
-            
+
             result = {
                 "phase": "PhaseA",
                 "op_name": op_name,
@@ -649,14 +636,14 @@ def main() -> int:
                 "stable_score": -1.0,
             }
             error_count += 1
-        
+
         # Write result to CSV immediately
         write_csv_row(csv_path, result, write_header)
         write_header = False  # Only write header once
-    
+
     # Summary
     total_runtime = time.time() - total_start_time
-    
+
     print("\n" + "=" * 70)
     print("Phase A Complete")
     print("=" * 70)
@@ -667,7 +654,7 @@ def main() -> int:
     print("-" * 70)
     print(f"Results saved to: {csv_path}")
     print("=" * 70)
-    
+
     return 0
 
 

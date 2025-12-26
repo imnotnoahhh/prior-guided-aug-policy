@@ -2,14 +2,14 @@
 
 本文档定义了各实验阶段的模型保存策略。
 
-## 保存策略总览 (v5.1 更新)
+## 保存策略总览
 
 | 阶段 | 保存模型 | 理由 |
 |------|----------|------|
 | **Baseline** | ✅ 是 | 对比基准，仅 1 个模型 |
 | **Phase A** | ❌ 否 | 筛选阶段，256 个配置太多 |
 | **Phase B** | ❌ 否 | ASHA 淘汰赛，仅最终存活配置保留结果 |
-| **Phase C** | ✅ **是** | v5.1 新增：禁用早停后保存所有尝试的策略 |
+| **Phase C** | ✅ **是** | 禁用早停后保存所有尝试的策略 |
 | **Phase D** | ✅ 是 | 最终验证，5-fold 模型用于论文 (仅 Ours_optimal) |
 
 ## 保存路径
@@ -46,8 +46,8 @@ outputs/
         "fold_idx": fold_idx,
         "epochs": epochs,
         "batch_size": batch_size,
-        "lr": 0.05,
-        "weight_decay": 1e-3,
+        "lr": 0.1,
+        "weight_decay": 1e-2,
         "momentum": 0.9,
     }
 }

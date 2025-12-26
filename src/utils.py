@@ -301,7 +301,7 @@ class EarlyStopping:
     Stops training if validation metric doesn't improve for `patience` epochs,
     but only starts checking after `min_epochs` have passed.
     
-    v5.1 Update: 
+    Update: 
     - Renamed grace_period to min_epochs (clearer semantics)
     - Recommended to use mode="max" with val_acc (not val_loss)
     - Added min_delta filtering for noisy metrics
@@ -407,13 +407,13 @@ def get_optimizer_and_scheduler(
 ) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler]:
     """Create SGD optimizer with warmup + CosineAnnealingLR scheduler.
     
-    Hyperparameters per research_plan_v5.md Section 5.
+    Hyperparameters per research_plan.md Section 5.
     
     Args:
         model: The model to optimize.
         total_epochs: Total number of training epochs.
         lr: Learning rate. Default 0.1.
-        weight_decay: Weight decay. Default 1e-2 (v5.4: increased for better regularization).
+        weight_decay: Weight decay. Default 1e-2 (
         momentum: SGD momentum. Default 0.9.
         warmup_epochs: Number of warmup epochs. Default 5.
             Linear warmup from lr/warmup_epochs to lr.

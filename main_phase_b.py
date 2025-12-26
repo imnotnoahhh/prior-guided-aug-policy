@@ -2,24 +2,24 @@
 """
 Phase B: Augmentation Tuning Script with ASHA Scheduler.
 
-v5.5 CHANGED: Rungs aligned with Phase A (40,100,200).
-v5.4 CHANGED: Final rung uses multi-seed evaluation for stability.
-v5.3 CHANGED: ASHA (Asynchronous Successive Halving) replaces Grid Search.
+
+
+
 - Sobol sampling instead of grid search (more exploration, less bias)
-- Multi-fidelity early stopping: 40ep → 100ep → 200ep (v5.5)
+- Multi-fidelity early stopping: 40ep → 100ep → 200ep (
 - Each rung keeps top 1/2, eliminates weak configs early
 - Final rung (200ep) uses 3 seeds for stable ranking
 - ~10x faster than full grid search with same or better results
 
-Reference: docs/research_plan_v5.md Section 3 (Phase B)
+Reference: docs/research_plan.md Section 3 (Phase B)
 
 Changelog:
-- v5.5: Rungs [40,100,200] aligned with Phase A
-- v5.4: Final rung multi-seed evaluation for stability
-- v5.3: ASHA scheduler with Sobol sampling
-- v5.2: channels_last, prefetch_factor=4
-- v5.1: Early stopping monitors val_acc
-- v5.0: 2D Grid Search in (m, p) space
+- 
+- 
+- 
+- 
+- 
+- 
 
 Usage:
     # Full ASHA run (~2-4 hours instead of ~28 hours)
@@ -138,7 +138,7 @@ def get_promoted_ops(
 
 
 # =============================================================================
-# Sobol Sampling for (m, p) Space (v5.3 NEW)
+# Sobol Sampling for (m, p) Space (
 # =============================================================================
 
 def sobol_sample_configs(
@@ -182,7 +182,7 @@ def sobol_sample_configs(
 
 
 # =============================================================================
-# ASHA Training with Checkpoint Support (v5.3 NEW)
+# ASHA Training with Checkpoint Support (
 # =============================================================================
 
 def train_to_epoch(
@@ -466,7 +466,7 @@ def aggregate_results(raw_csv_path: Path, summary_csv_path: Path) -> pd.DataFram
 
 
 # =============================================================================
-# ASHA Scheduler (v5.3 NEW)
+# ASHA Scheduler (
 # =============================================================================
 
 def run_phase_b_asha(
@@ -494,7 +494,7 @@ def run_phase_b_asha(
     2. Train all to first rung (e.g., 30 epochs)
     3. Keep top 1/reduction_factor, continue to next rung
     4. Repeat until final rung
-    5. Final rung uses multi-seed evaluation for stable ranking (v5.4)
+    5. Final rung uses multi-seed evaluation for stable ranking (
     
     Args:
         phase_a_csv: Path to Phase A results CSV.
@@ -707,7 +707,7 @@ def run_phase_b_asha(
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Phase B: ASHA Augmentation Tuning (v5.3)",
+        description="Phase B: ASHA Augmentation Tuning (",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -741,7 +741,7 @@ Examples:
     # ASHA parameters
     parser.add_argument(
         "--rungs", type=str, default="40,100,200",
-        help="Comma-separated epoch checkpoints (default: 40,100,200, v5.5)"
+        help="Comma-separated epoch checkpoints (default: 40,100,200)"
     )
     parser.add_argument(
         "--reduction_factor", type=int, default=2,
@@ -819,7 +819,7 @@ def main() -> int:
         print("[Phase0] phase0_summary.csv not found; fallback to defaults wd=1e-2, ls=0.1")
     
     print("=" * 70)
-    print("Phase B: ASHA Augmentation Tuning (v5.4)")
+    print("Phase B: ASHA Augmentation Tuning (
     print("=" * 70)
     print(f"Device: {device}")
     print(f"ASHA Rungs: {rungs}")

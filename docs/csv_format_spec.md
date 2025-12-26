@@ -57,7 +57,7 @@ phase, op_name, magnitude, probability, seed, fold_idx, val_acc, val_loss, top5_
 
 参见 `docs/csv_format_example.csv`
 
-## 早停/轮次设置 (v5.5)
+## 早停/轮次设置
 
 | 阶段 | epochs | 策略 | 预期 epochs_run | 备注 |
 |------|--------|------|-----------------|------|

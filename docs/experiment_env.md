@@ -14,7 +14,38 @@
 
 ---
 
-## 2. Baseline 运行
+## 2. Phase 0 超参校准
+
+### 前置条件
+
+首次运行前，需要确定最优 (weight_decay, label_smoothing) 组合。
+
+### 运行命令
+
+```bash
+# 运行 Phase 0 校准 (~1 小时)
+CUDA_VISIBLE_DEVICES=0 python run_phase0_calibration.py | tee logs/phase0.log
+```
+
+### 可选参数
+
+```bash
+python run_phase0_calibration.py \
+    --epochs 100 \
+    --seeds 42,123,456 \
+    --fold_idx 0 \
+    --output_dir outputs
+```
+
+### 输出文件
+
+| 文件 | 说明 |
+|------|------|
+| `outputs/phase0_summary.csv` | 各参数组合的平均性能 |
+
+---
+
+## 3. Baseline 运行
 
 ### 运行命令
 
@@ -35,7 +66,7 @@ CUDA_VISIBLE_DEVICES=0 python run_baseline.py | tee logs/baseline.log
 
 ---
 
-## 3. Phase A 筛选
+## 4. Phase A 筛选
 
 ### 运行命令
 
@@ -68,7 +99,7 @@ python main_phase_a.py \
 
 ---
 
-## 4. Phase B ASHA 深度微调
+## 5. Phase B ASHA 深度微调
 
 ### 运行命令
 
@@ -103,7 +134,7 @@ python main_phase_b.py \
 
 ---
 
-## 5. Phase C 贪心组合
+## 6. Phase C 贪心组合
 
 ### 前置条件
 
@@ -147,7 +178,7 @@ python main_phase_c.py \
 
 ---
 
-## 6. Phase D SOTA 对比实验
+## 7. Phase D SOTA 对比实验
 
 ### 前置条件
 
@@ -156,7 +187,7 @@ python main_phase_c.py \
 ### 运行命令
 
 ```bash
-# 完整运行（6 methods × 5 folds × 200 epochs）
+# 完整运行（7 methods × 5 folds × 200 epochs）
 CUDA_VISIBLE_DEVICES=0 nohup python main_phase_d.py > logs/phase_d.log 2>&1 &
 
 # 前台运行
@@ -177,6 +208,7 @@ CUDA_VISIBLE_DEVICES=0 python main_phase_d.py --folds 0,1,2
 | 方法 | 说明 | 参数 |
 |------|------|------|
 | **Baseline** | S0 基础增强 | RandomCrop(32, padding=4) + HorizontalFlip(p=0.5) |
+| **Baseline-NoAug** | 无增强消融 | 仅 ToTensor |
 | **RandAugment** | 自动增强 SOTA | N=2, M=9 |
 | **Cutout** | 遮挡增强 SOTA | n_holes=1, length=16 |
 | **Best_SingleOp** | 单操作最优 | Phase B 最佳单操作 |
@@ -192,7 +224,7 @@ CUDA_VISIBLE_DEVICES=0 python main_phase_d.py --folds 0,1,2
 
 ---
 
-## 7. 一键运行脚本
+## 8. 一键运行脚本
 
 ```bash
 # 完整训练流程
@@ -204,23 +236,25 @@ CUDA_VISIBLE_DEVICES=1 bash scripts/train_single_gpu.sh
 
 ---
 
-## 8. 计算量估计
+## 9. 计算量估计
 
 | 阶段 | 配置 | 预计时间 |
 |------|------|----------|
+| Phase 0 | 12 configs × 3 seeds × 100 ep | ~1h |
 | Baseline | 1 × 200 ep | ~15 min |
 | Phase A | 8 ops × 32 点 × 40 ep | ~1h |
 | Phase B (ASHA) | 30 samples/op, rungs=[40,100,200] | ~2-4h |
 | Phase C | ~8 ops × 3 seeds × 200 ep | ~1-2h |
-| Phase D | 6 methods × 5 folds × 200 ep | ~2h |
-| **总计** | | **~7-10h** |
+| Phase D | 7 methods × 5 folds × 200 ep | ~2h |
+| **总计** | | **~8-12h** |
 
 ---
 
-## 9. 输出文件汇总
+## 10. 输出文件汇总
 
 ```
 outputs/
+├── phase0_summary.csv            # Phase 0 超参校准结果
 ├── baseline_result.csv           # Baseline 结果
 ├── phase_a_results.csv           # Phase A 筛选结果
 ├── phase_b_tuning_raw.csv        # Phase B 原始结果

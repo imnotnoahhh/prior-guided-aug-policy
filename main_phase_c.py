@@ -48,7 +48,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.augmentations import (
     build_transform_with_ops,
-    build_dynamic_transform,  # v6: Dynamic
+    build_dynamic_transform,  
     get_baseline_transform,
     get_val_transform,
     get_compatible_ops,
@@ -70,7 +70,7 @@ from src.utils import (
 
 
 # =============================================================================
-# Phase A Results Loading (v5.4 NEW)
+# Phase A Results Loading (
 # =============================================================================
 
 def load_phase_a_best_per_op(csv_path: Path) -> Dict[str, Tuple[float, float, float]]:
@@ -178,7 +178,7 @@ def train_dynamic_policy(
     fold_idx: int = 0,
     batch_size: int = 128,
     num_workers: int = 8,
-    early_stop_patience: int = 200, # v6: Disable early stopping essentially
+    early_stop_patience: int = 200, 
     deterministic: bool = True,
     save_checkpoint: bool = False,
     checkpoint_dir: Optional[Path] = None,
@@ -470,11 +470,11 @@ def check_csv_needs_header(path: Path) -> bool:
 # =============================================================================
 
 def save_policy(
-    ops: List[Tuple[str, float, float]],  # v7: now includes probability
+    ops: List[Tuple[str, float, float]],  
     baseline_acc: float,
     final_acc: float,
     output_path: Path,
-    strategy: str = "greedy_validated",  # v7: new strategy type
+    strategy: str = "greedy_validated",  
     best_single_acc: float = None,
 ) -> None:
     """Save final policy to JSON file (v7 format).
@@ -482,7 +482,7 @@ def save_policy(
     v7: Saves full (name, magnitude, probability) for each operation.
     """
     policy_dict = {
-        "version": "v7.0",
+        "version": "current",
         "phase": "PhaseC",
         "strategy": strategy,
         "baseline_acc": baseline_acc,
@@ -527,7 +527,7 @@ def load_policy_for_dynamic(json_path: Path) -> Tuple[List[Tuple[str, float]], i
 
 
 # =============================================================================
-# v7: Greedy Combination Search with Validation (New Main Logic)
+
 # =============================================================================
 
 def train_static_policy(

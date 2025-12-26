@@ -1,4 +1,4 @@
-# 复现指南（v5.5）
+# 复现指南
 
 - 硬件/驱动：CUDA 12.8、NVIDIA Driver 570.133.20、cuDNN 9.8.0.87（4 × A10）。
 - 环境：`conda env create -f environment.yml && conda activate pga`。如已创建，`conda env update -f environment.yml` 保持同步。
@@ -9,6 +9,7 @@
 bash scripts/train_single_gpu.sh
 ```
 产物默认写入 `outputs/`，日志在 `logs/`。关键文件：
+- `outputs/phase0_summary.csv`
 - `outputs/baseline_result.csv`
 - `outputs/phase_a_results.csv`
 - `outputs/phase_b_tuning_raw.csv`, `outputs/phase_b_tuning_summary.csv`
@@ -16,11 +17,8 @@ bash scripts/train_single_gpu.sh
 - `outputs/phase_d_results.csv`, `outputs/phase_d_summary.csv`
 - `outputs/checkpoints/*.pth`
 
-## 多 GPU 合并（Phase A/B 并行）
-参考 `scripts/train_multi_gpu.sh`：各 GPU 写入 `outputs/gpu{0..3}/`，结束后使用脚本中的 `merge_csv` 步骤合并到主 `outputs/`。
-
 ## 验证
-- 冒烟：`bash scripts/smoke_test_phase_a.sh` 等分阶段脚本（1-2 epoch）。
+- 冒烟：`python main_phase_a.py --dry_run` 等各阶段 dry_run 模式（1-2 epoch）。
 - 完整：`phase_d_summary.csv` 应含 7 methods 的 Mean ± Std。
 
 ## 后台运行示例
