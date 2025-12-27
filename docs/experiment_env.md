@@ -232,6 +232,19 @@ bash scripts/train_single_gpu.sh
 
 # 或指定 GPU
 CUDA_VISIBLE_DEVICES=1 bash scripts/train_single_gpu.sh
+
+# 更稳定：
+# 创建日志目录
+mkdir -p logs
+
+# 后台运行，日志保存到文件
+nohup bash scripts/train_single_gpu.sh > logs/train_$(date +%Y%m%d_%H%M%S).log 2>&1 &
+
+# 查看进程
+jobs -l
+
+# 实时查看日志
+tail -f logs/train_*.log
 ```
 
 ---

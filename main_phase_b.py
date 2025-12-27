@@ -586,7 +586,7 @@ def run_phase_b_asha(
         print(f"RUNG {rung_idx + 1}/{len(rungs)}: Training to {target_epochs} epochs")
         print(f"Active configs: {len(active_configs)}")
         if is_final_rung:
-            print(f"[FINAL RUNG] Using multi-seed evaluation: {final_rung_seeds}")
+            print(f"[FINAL RUNG] Results will be saved to CSV")
         print("="*70)
         
         rung_results = []
@@ -597,54 +597,31 @@ def run_phase_b_asha(
             unit="cfg"
         ):
             try:
+                # All rungs: single seed, continue from checkpoint
+                # (Final rung no longer uses multi-seed; Phase C will do multi-seed validation)
+                result, new_checkpoint = train_to_epoch(
+                    op_name=op_name,
+                    magnitude=m,
+                    probability=p,
+                    target_epochs=target_epochs,
+                    device=device,
+                    checkpoint=checkpoint,  # Continue from previous rung
+                    fold_idx=fold_idx,
+                    batch_size=batch_size,
+                    num_workers=num_workers,
+                    seed=seed,
+                    deterministic=deterministic,
+                    weight_decay=weight_decay,
+                    label_smoothing=label_smoothing,
+                )
+                
+                # Write result to CSV
                 if is_final_rung:
-                    # Final rung: multi-seed evaluation for stable ranking
-                    seed_results = []
-                    for eval_seed in final_rung_seeds:
-                        result, new_checkpoint = train_to_epoch(
-                            op_name=op_name,
-                            magnitude=m,
-                            probability=p,
-                            target_epochs=target_epochs,
-                            device=device,
-                            checkpoint=None,  # Fresh training for each seed
-                            fold_idx=fold_idx,
-                            batch_size=batch_size,
-                            num_workers=num_workers,
-                            seed=eval_seed,
-                            deterministic=deterministic,
-                            weight_decay=weight_decay,
-                            label_smoothing=label_smoothing,
-                        )
-                        seed_results.append(result)
-                        
-                        # Write each seed result to CSV
-                        write_raw_csv_row(raw_csv_path, result, write_header)
-                        write_header = False
-                    
-                    # Use mean val_acc for ranking
-                    mean_val_acc = np.mean([r["val_acc"] for r in seed_results])
-                    rung_results.append((key, mean_val_acc, None))
-                else:
-                    # Non-final rungs: single seed, continue from checkpoint
-                    result, new_checkpoint = train_to_epoch(
-                        op_name=op_name,
-                        magnitude=m,
-                        probability=p,
-                        target_epochs=target_epochs,
-                        device=device,
-                        checkpoint=checkpoint,
-                        fold_idx=fold_idx,
-                        batch_size=batch_size,
-                        num_workers=num_workers,
-                        seed=seed,
-                        deterministic=deterministic,
-                        weight_decay=weight_decay,
-                        label_smoothing=label_smoothing,
-                    )
-                    
-                    # Store result
-                    rung_results.append((key, result["val_acc"], new_checkpoint))
+                    write_raw_csv_row(raw_csv_path, result, write_header)
+                    write_header = False
+                
+                # Store result
+                rung_results.append((key, result["val_acc"], new_checkpoint))
                     
             except Exception as e:
                 print(f"\nERROR in {op_name} (m={m}, p={p}): {e}")
