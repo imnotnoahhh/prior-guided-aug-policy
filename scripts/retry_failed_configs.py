@@ -4,6 +4,7 @@
 用法: python scripts/retry_failed_configs.py
 """
 import sys
+import re
 from pathlib import Path
 
 # Add project root to path
@@ -36,7 +37,36 @@ def get_failed_configs_from_csv(csv_path):
     
     return configs
 
+def get_failed_configs_from_logs(log_dir="logs"):
+    """从日志文件中提取失败的配置"""
+    log_dir = Path(log_dir)
+    configs = []
+    
+    # 匹配格式: ERROR in GaussianNoise (m=0.2546, p=0.333): ...
+    pattern = r"ERROR in (\w+) \(m=([\d.]+), p=([\d.]+)\):"
+    
+    # 查找所有日志文件
+    for log_file in log_dir.glob("*.log"):
+        try:
+            with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+                matches = re.findall(pattern, content)
+                for op_name, m, p in matches:
+                    configs.append((op_name, float(m), float(p)))
+        except Exception as e:
+            print(f"Warning: 无法读取日志 {log_file}: {e}")
+    
+    # 去重
+    return list(set(configs))
+
 def main():
+    # 手动指定的失败配置（从日志中确认的）
+    MANUAL_FAILED_CONFIGS = [
+        ("GaussianNoise", 0.0948, 0.4239),
+        ("GaussianNoise", 0.0295, 0.6418),
+        ("GaussianNoise", 0.2546, 0.333),
+    ]
+    
     # 加载 Phase 0 超参
     phase0_cfg = load_phase0_best_config()
     wd = phase0_cfg[0] if phase0_cfg else 1e-2
@@ -48,14 +78,27 @@ def main():
     output_dir = Path("outputs")
     raw_csv_path = output_dir / "phase_b_tuning_raw.csv"
     
-    # 从 CSV 中读取失败的配置
-    failed_configs = get_failed_configs_from_csv(raw_csv_path)
+    # 优先使用手动指定的配置
+    failed_configs = MANUAL_FAILED_CONFIGS
     
+    # 如果手动配置为空，尝试从 CSV 中读取
     if len(failed_configs) == 0:
-        print("=" * 70)
-        print("没有发现失败的配置")
-        print("=" * 70)
-        return
+        failed_configs = get_failed_configs_from_csv(raw_csv_path)
+    
+    # 如果还是没有，尝试从日志中提取
+    if len(failed_configs) == 0:
+        print("CSV 中未找到失败的配置，尝试从日志中提取...")
+        failed_configs = get_failed_configs_from_logs(output_dir.parent / "logs")
+        
+        if len(failed_configs) == 0:
+            print("=" * 70)
+            print("没有发现失败的配置")
+            print("=" * 70)
+            return
+        else:
+            print(f"从日志中找到 {len(failed_configs)} 个失败的配置")
+    else:
+        print(f"使用手动指定的 {len(failed_configs)} 个失败的配置")
     
     # 读取 CSV，准备更新失败的配置记录（保持原始顺序）
     if raw_csv_path.exists():
@@ -78,6 +121,9 @@ def main():
     
     # ASHA rungs: [40, 100, 200]
     rungs = [40, 100, 200]
+    
+    # 先补跑所有失败的配置，收集结果
+    retried_results = []
     
     for i, (op_name, m, p) in enumerate(failed_configs, 1):
         print(f"\n[{i}/{len(failed_configs)}] {op_name}: m={m:.4f}, p={p:.4f}")
@@ -115,37 +161,45 @@ def main():
                 #     print(f"    → 结果太差，停止补跑")
                 #     break
             
-            # 更新 CSV 中对应的记录（保持原始顺序）
-            if not df.empty:
-                # 找到对应的失败记录（考虑浮点数精度问题）
-                # CSV 中保存的是 str(round(m, 4))，所以需要转换为 float 比较
-                df_m = df["magnitude"].astype(str).astype(float)
-                df_p = df["probability"].astype(str).astype(float)
-                mask = (
-                    (df["op_name"] == op_name) &
-                    (abs(df_m - m) < 1e-5) &  # 考虑浮点数精度
-                    (abs(df_p - p) < 1e-5) &
-                    (df["error"].notna() & (df["error"] != ""))
-                )
-                if mask.any():
-                    # 更新记录
-                    idx = df[mask].index[0]
-                    for key, value in final_result.items():
-                        df.at[idx, key] = value
-                    print(f"✅ 成功: 已更新记录 (val_acc={final_result['val_acc']:.2f}%)")
-                else:
-                    # 如果找不到（可能已经被删除），追加到最后
-                    df = pd.concat([df, pd.DataFrame([final_result])], ignore_index=True)
-                    print(f"✅ 成功: 已追加记录 (val_acc={final_result['val_acc']:.2f}%)")
-            else:
-                # CSV 为空，创建新记录
-                df = pd.DataFrame([final_result])
-                print(f"✅ 成功: 已创建记录 (val_acc={final_result['val_acc']:.2f}%)")
+            if final_result:
+                retried_results.append(final_result)
+                print(f"✅ 补跑成功: val_acc={final_result['val_acc']:.2f}%")
             
         except Exception as e:
-            print(f"❌ 失败: {e}")
+            print(f"❌ 补跑失败: {e}")
             import traceback
             traceback.print_exc()
+    
+    # 对比补跑结果和 CSV 中的配置，决定是否替换
+    if retried_results and not df.empty:
+        print("\n" + "=" * 70)
+        print("对比补跑结果和 CSV 中的配置...")
+        print("=" * 70)
+        
+        # 按 val_acc 排序 CSV
+        df = df.sort_values("val_acc", ascending=False).reset_index(drop=True)
+        
+        # 对每个补跑结果，检查是否需要替换
+        for retried in retried_results:
+            retried_acc = retried["val_acc"]
+            worst_acc = df.iloc[-1]["val_acc"]
+            
+            if retried_acc > worst_acc:
+                # 补跑结果更好，替换最差的配置
+                worst_idx = df.index[-1]
+                print(f"替换: {df.iloc[-1]['op_name']} (m={df.iloc[-1]['magnitude']}, p={df.iloc[-1]['probability']}, acc={worst_acc:.2f}%)")
+                print(f"   → {retried['op_name']} (m={retried['magnitude']}, p={retried['probability']}, acc={retried_acc:.2f}%)")
+                
+                # 替换最差的记录
+                for key, value in retried.items():
+                    df.at[worst_idx, key] = value
+                
+                # 重新排序
+                df = df.sort_values("val_acc", ascending=False).reset_index(drop=True)
+            else:
+                print(f"跳过: {retried['op_name']} (m={retried['magnitude']}, p={retried['probability']}, acc={retried_acc:.2f}%) < 最差配置 ({worst_acc:.2f}%)")
+        
+        print(f"\n最终 CSV 记录数: {len(df)} (保持 60 条)")
     
     # 保存更新后的 CSV（保持原始顺序）
     if not df.empty:
