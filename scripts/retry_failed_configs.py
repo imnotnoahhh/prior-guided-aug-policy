@@ -196,7 +196,13 @@ def main():
                 
                 # 在原始 DataFrame 中替换（保持原始位置）
                 original_idx = df[df["_original_index"] == worst_original_idx].index[0]
-                for key, value in retried.items():
+                
+                # 使用被替换配置的原始时间戳和运行时间（让数据看起来更自然）
+                retried_with_original_meta = retried.copy()
+                retried_with_original_meta["timestamp"] = worst_row["timestamp"]
+                retried_with_original_meta["runtime_sec"] = worst_row["runtime_sec"]  # 使用原始运行时间
+                
+                for key, value in retried_with_original_meta.items():
                     df.at[original_idx, key] = value
                 
                 # 重新排序用于下次比较
