@@ -103,6 +103,8 @@ def main():
     # 读取 CSV，准备更新失败的配置记录（保持原始顺序）
     if raw_csv_path.exists():
         df = pd.read_csv(raw_csv_path)
+        # 保存原始顺序（添加原始索引列）
+        df["_original_index"] = df.index
         print(f"读取 CSV: {len(df)} 条记录")
     else:
         print("⚠️  CSV 文件不存在，将创建新文件")
@@ -176,30 +178,39 @@ def main():
         print("对比补跑结果和 CSV 中的配置...")
         print("=" * 70)
         
-        # 按 val_acc 排序 CSV
-        df = df.sort_values("val_acc", ascending=False).reset_index(drop=True)
+        # 按 val_acc 排序找到最差的配置（但保持原始索引）
+        df_sorted = df.sort_values("val_acc", ascending=False).reset_index(drop=True)
         
         # 对每个补跑结果，检查是否需要替换
         for retried in retried_results:
             retried_acc = retried["val_acc"]
-            worst_acc = df.iloc[-1]["val_acc"]
+            worst_acc = df_sorted.iloc[-1]["val_acc"]
             
             if retried_acc > worst_acc:
-                # 补跑结果更好，替换最差的配置
-                worst_idx = df.index[-1]
-                print(f"替换: {df.iloc[-1]['op_name']} (m={df.iloc[-1]['magnitude']}, p={df.iloc[-1]['probability']}, acc={worst_acc:.2f}%)")
+                # 补跑结果更好，找到最差配置的原始索引
+                worst_original_idx = df_sorted.iloc[-1]["_original_index"]
+                worst_row = df_sorted.iloc[-1]
+                
+                print(f"替换: {worst_row['op_name']} (m={worst_row['magnitude']}, p={worst_row['probability']}, acc={worst_acc:.2f}%)")
                 print(f"   → {retried['op_name']} (m={retried['magnitude']}, p={retried['probability']}, acc={retried_acc:.2f}%)")
                 
-                # 替换最差的记录
+                # 在原始 DataFrame 中替换（保持原始位置）
+                original_idx = df[df["_original_index"] == worst_original_idx].index[0]
                 for key, value in retried.items():
-                    df.at[worst_idx, key] = value
+                    df.at[original_idx, key] = value
                 
-                # 重新排序
-                df = df.sort_values("val_acc", ascending=False).reset_index(drop=True)
+                # 重新排序用于下次比较
+                df_sorted = df.sort_values("val_acc", ascending=False).reset_index(drop=True)
             else:
                 print(f"跳过: {retried['op_name']} (m={retried['magnitude']}, p={retried['probability']}, acc={retried_acc:.2f}%) < 最差配置 ({worst_acc:.2f}%)")
         
         print(f"\n最终 CSV 记录数: {len(df)} (保持 60 条)")
+        
+        # 恢复原始顺序（如果有原始索引）
+        if "_original_index" in df.columns:
+            df = df.sort_values("_original_index").reset_index(drop=True)
+            df = df.drop(columns=["_original_index"])
+            print("已恢复原始顺序")
     
     # 保存更新后的 CSV（保持原始顺序）
     if not df.empty:
@@ -214,7 +225,7 @@ def main():
         existing_fields = [f for f in fieldnames if f in df.columns]
         df = df[existing_fields]
         df.to_csv(raw_csv_path, index=False)
-        print(f"\n已保存更新后的 CSV: {len(df)} 条记录")
+        print(f"\n已保存更新后的 CSV: {len(df)} 条记录（保持原始顺序）")
     
     # 重新生成 summary（包含补跑后的结果）
     if not df.empty:
