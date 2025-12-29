@@ -1,47 +1,45 @@
-# Checkpoint 保存策略
+# Checkpoint 获取与规范
 
-本文档定义了各实验阶段的模型保存策略。
+已发布的权重通过 GitHub Release 提供，并默认下载到 `outputs/checkpoints/`。本文档说明包含哪些文件、如何下载校验与加载。
 
-## 保存策略总览
+## 发布内容（Release: `v1.0`）
 
-| 阶段 | 保存模型 | 理由 |
-|------|----------|------|
-| **Baseline** | ✅ 是 | 对比基准，仅 1 个模型 |
-| **Phase A** | ❌ 否 | 筛选阶段，256 个配置太多 |
-| **Phase B** | ❌ 否 | ASHA 淘汰赛，仅最终存活配置保留结果 |
-| **Phase C** | ✅ **是** | 禁用早停后保存所有尝试的策略 |
-| **Phase D** | ✅ 是 | 最终验证，5-fold 模型用于论文 (仅 Ours_optimal) |
+| 文件 | 作用 | SHA-256 |
+|------|------|---------|
+| `baseline_best.pth` | Baseline 最佳模型 | `959ca894db899c9b76b6bb81bb4830f892e1b2e589013522c57afbf21cc93c51` |
+| `phase_d_fold0_best.pth` | Fold-0 最佳模型 | `edd6b4f4ab4868cfaed203d69351fcbcd228603efb0bc645fa125bf14defbfbc` |
+| `phase_d_fold1_best.pth` | Fold-1 最佳模型 | `eebf6785e2bab208f5ce7a4dcf76a6ec4d3d1f589187edcee6a476d6d972a0a3` |
+| `phase_d_fold2_best.pth` | Fold-2 最佳模型 | `25bcd7734d303bd5f84558ef1fcdbfbeda6aa023d05bdb2983d64be28b2c55f1` |
+| `phase_d_fold3_best.pth` | Fold-3 最佳模型 | `142b9627016db7013399ed607da1d50f5327ccab21d392274e94e7408704b693` |
+| `phase_d_fold4_best.pth` | Fold-4 最佳模型 | `6fe22981fbee87e866da77a542dbeebd97018a2ef90d15757e0a9aeef35e70e7` |
 
-## 保存路径
+## 下载与校验
 
-```
-outputs/
-└── checkpoints/
-    ├── baseline_best.pth                          # Baseline 最佳模型
-    ├── phase_c_ColorJitter_seed42_best.pth        # Phase C 单操作策略
-    ├── phase_c_ColorJitter+GaussianBlur_seed42_best.pth  # Phase C 组合策略
-    ├── ...                                        # Phase C 其他策略
-    ├── phase_d_fold0_best.pth                     # Phase D Fold-0 最佳模型
-    ├── phase_d_fold1_best.pth                     # Phase D Fold-1 最佳模型
-    ├── phase_d_fold2_best.pth                     # Phase D Fold-2 最佳模型
-    ├── phase_d_fold3_best.pth                     # Phase D Fold-3 最佳模型
-    └── phase_d_fold4_best.pth                     # Phase D Fold-4 最佳模型
-```
+- 推荐：在仓库根目录使用 GitHub CLI 下载到默认路径（自动创建目录）：
+  ```bash
+  gh release download v1.0 -D outputs/checkpoints -p "*.pth"
+  ```
+- 校验完整性：
+  ```bash
+  cd outputs/checkpoints
+  shasum -a 256 *.pth
+  ```
+  对照上表的 SHA-256。
 
-## Checkpoint 内容
+## 文件内容结构
 
-每个 `.pth` 文件包含：
+每个 `.pth` 是 `torch.save` 的 dict，主要键：
 
 ```python
 {
-    "model_state_dict": model.state_dict(),      # 模型权重
-    "optimizer_state_dict": optimizer.state_dict(),  # 优化器状态
-    "scheduler_state_dict": scheduler.state_dict(),  # 调度器状态
-    "epoch": best_epoch,                          # 最佳 epoch
-    "val_acc": best_val_acc,                      # 验证准确率
-    "top5_acc": best_top5_acc,                    # Top-5 准确率
-    "val_loss": best_val_loss,                    # 验证损失
-    "config": {                                   # 训练配置
+    "model_state_dict": ...,
+    "optimizer_state_dict": ...,
+    "scheduler_state_dict": ...,
+    "epoch": best_epoch,
+    "val_acc": best_val_acc,
+    "top5_acc": best_top5_acc,
+    "val_loss": best_val_loss,
+    "config": {  # 训练配置
         "seed": seed,
         "fold_idx": fold_idx,
         "epochs": epochs,
@@ -49,26 +47,9 @@ outputs/
         "lr": 0.1,
         "weight_decay": 1e-2,
         "momentum": 0.9,
-    }
+    },
 }
 ```
-
-## 磁盘占用估计
-
-| 模型 | 数量 | 单个大小 | 总大小 |
-|------|------|----------|--------|
-| Baseline | 1 | ~45MB | ~45MB |
-| Phase C | ~24 (8 ops × 3 seeds) | ~45MB | ~1GB |
-| Phase D | 5 | ~45MB | ~225MB |
-| **总计** | ~30 | - | **~1.3GB** |
-
-## 用途
-
-| 模型 | 论文用途 |
-|------|----------|
-| Baseline | 基准对比、消融实验 |
-| Phase C | 策略构建过程的完整证据链、可复现性 |
-| Phase D × 5 | 报告 5-fold 平均性能、计算 std、开源复现、可视化 |
 
 ## 加载示例
 
@@ -76,15 +57,13 @@ outputs/
 import torch
 from src.models import create_model
 
-# 加载 checkpoint
-checkpoint = torch.load("outputs/checkpoints/baseline_best.pth")
+ckpt_path = "outputs/checkpoints/baseline_best.pth"
+checkpoint = torch.load(ckpt_path, map_location="cpu")
 
-# 重建模型
 model = create_model(num_classes=100, pretrained=False)
 model.load_state_dict(checkpoint["model_state_dict"])
 model.eval()
 
-# 查看性能
 print(f"Best Epoch: {checkpoint['epoch']}")
 print(f"Val Acc: {checkpoint['val_acc']:.2f}%")
 print(f"Top-5 Acc: {checkpoint['top5_acc']:.2f}%")

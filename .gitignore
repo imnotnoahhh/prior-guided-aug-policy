@@ -6,6 +6,9 @@
 data/
 *.tar.gz
 
+# Training artifacts (kept in releases, not in git)
+outputs/checkpoints/
+
 # ==============================================================================
 # Python Standard Ignores
 # ==============================================================================
