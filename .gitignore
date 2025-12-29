@@ -6,19 +6,6 @@
 data/
 *.tar.gz
 
-# Experiment outputs - results are machine/run specific
-outputs/
-outputs_dryrun/
-# Model checkpoints
-checkpoints/
-*.pt
-*.pth
-*.ckpt
-
-# Logs
-logs/
-*.log
-
 # ==============================================================================
 # Python Standard Ignores
 # ==============================================================================

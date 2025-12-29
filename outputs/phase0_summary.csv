@@ -1,0 +1,2 @@
+weight_decay,label_smoothing,mean_val_acc,std_val_acc,mean_train_acc,mean_gap,any_underfitting
+0.010000,0.100000,1.700000,,6.820000,5.120000,False
