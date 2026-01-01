@@ -2,9 +2,9 @@
 
 ## 项目概述
 
-**研究目标**: 在低数据体制（每类仅 100 张图像）下，通过系统化搜索管道寻找多种数据增强操作的最优组合。
+**研究目标**: 在低数据体制（每类 100 张 - Small-Sample Regime）下，系统评估数据增强策略的**复杂度-收益曲线**，并提出一种高效的搜索流程。
 
-**核心假设**: 多种数据增强操作的合理叠加（多 Op 组合）比单一操作更有效。
+**核心假设 (Simplicity Principle)**: 多种增强操作的叠加（Multi-Op）在小样本场景下边际效应递减。相比于盲目堆叠复杂度的 RandAugment，**精准搜索的单一操作 (Optimal Single-Op)** 能以极低的代价获得相当的性能，且具备显著的**稳定性优势** (Lower Variance)。
 
 **目标期刊/会议**: WACV / BMVC / ICIP 级别
 
@@ -343,12 +343,11 @@ Ours_optimal ≥ RandAugment > Baseline > Baseline-NoAug
 
 ## 7. 核心创新点
 
-1. **2D 搜索空间**: 联合搜索 (magnitude, probability)，而非固定 p=1.0
-2. **先验引导范围**: 每操作定制 (m, p) 搜索范围，体现人类先验知识
-3. **ASHA 早停**: Phase B 使用多保真淘汰赛，比 Grid Search 快 ~10 倍
-4. **Multi-Start Greedy**: Phase C 从多起点出发，避免局部最优
-5. **概率调整机制**: 组合多操作时，按破坏性权重自动调节概率，控制总体增广强度
-6. **No-NAS 约束**: 严格固定模型架构，仅改变数据输入分布
+1.  **Complexity Gap Discovery**: 揭示了在小样本场景下，SOTA 级复杂增强（RandAugment）相对于最优单一增强（Best Single-Op）的收益递减现象，验证了“奥卡姆剃刀”原则。
+2.  **Stability-First Strategy**: 提出将“稳定性”（低方差）作为小样本学习的关键指标，Ours 方法在保持竞争力的同时显著降低了模型方差（0.78 vs 1.17）。
+3.  **Prior-Guided Efficiency**: 展示了结合人类先验（2D 搜索空间）和 ASHA 早停的轻量级搜索流程，如何能快速定位到那个“性价比”最高的单一操作。
+4.  **Auto-Regularization**: Phase C 的贪心算法自动拒绝了额外的复杂操作，这种“策略坍缩”实际上是一种**自动正则化**行为，避免了过拟合。
+5.  **No-NAS 约束**: 证明了在固定架构下，仅通过精准的数据形态调整（Data-Centric AI）即可获得显著收益。
 
 ---
 

@@ -10,15 +10,16 @@
 
 ### 1.1 研究目标
 
-在极少样本（每类 100 张）限制下，通过先验引导的搜索找到最优增强策略。
+在极少样本（每类 100 张）限制下，探究**增强策略复杂度与模型性能**的关系。通过先验引导的搜索流程，验证简单策略在低数据体制下的优越性。
 
-* **核心假设**: 精选的操作组合 ≥ 盲目的 RandAugment（或至少相当，但更高效）。
-* **四阶段搜索管道**:
-    1. Phase 0: 超参校准（确定 weight_decay, label_smoothing）
-    2. Phase A: 广度筛选有效操作
-    3. Phase B: 深度调参找最佳 (m, p)
-    4. Phase C: 贪心组合搜索 + 验证
-* **最终评估**: Phase D: 5-Fold 交叉验证对比 SOTA
+*   **核心假设 (Simplicity Hypothesis)**: 在小样本场景下，**精选的单一操作 (Optimal Single-Op)** 足以逼近 SOTA (RandAugment) 的性能，且具备更高的稳定性（更低方差）和可解释性。复杂的组合增强策略（Multi-Op）往往会导致收益递减甚至过拟合。
+*   **研究定位**: 我们不追求绝对的 SOTA 准确率（Accuracy），而是追求 **"Accuracy-Stability-Complexity"** 三者的最佳平衡（Pareto Optimal）。
+*   **四阶段搜索管道**:
+    1.  Phase 0: 超参校准（确定 weight_decay, label_smoothing）
+    2.  Phase A: 广度筛选有效操作
+    3.  Phase B: 深度调参找最佳 (m, p)
+    4.  Phase C: 验证性组合搜索（验证多操作是否真正有效，体现“奥卡姆剃刀”原则）
+*   **最终评估**: Phase D: 5-Fold 交叉验证，重点对比 **Ours (Stability)** vs **RandAugment (Complexity)**。
 
 ---
 
