@@ -84,33 +84,42 @@ def plot_search_space_heatmap():
 def plot_complexity_tradeoff():
     print("Generating Complexity-Stability Trade-off...")
     
-    # Data manually constructed from Phase D results
-    data = {
-        'Method': ['Baseline', 'Ours (Optimal)', 'RandAugment'],
-        'Accuracy': [39.90, 40.74, 42.24],
-        'Stability': [1.0/1.01, 1.0/0.78, 1.0/1.17], # Inverse Variance proxy
-        'Std': [1.01, 0.78, 1.17],
-        'Complexity': [1, 2, 8]  # Conceptual complexity score
+    # Load data from summary
+    df_sum = pd.read_csv('outputs/phase_d_summary.csv')
+    
+    # Map methods to our simplified labels
+    method_map = {
+        'Baseline': 'Baseline',
+        'Ours_optimal': 'Ours (Optimal)',
+        'RandAugment': 'RandAugment'
     }
     
-    plt.figure(figsize=(8, 6))
+    plot_data = []
+    for m_id, label in method_map.items():
+        row = df_sum[df_sum['method'] == m_id]
+        if not row.empty:
+            plot_data.append({
+                'Method': label,
+                'Accuracy': row.iloc[0]['mean_val_acc'],
+                'Std': row.iloc[0]['std_val_acc'],
+                'Complexity': 1 if m_id == 'Baseline' else (2 if m_id == 'Ours_optimal' else 8)
+            })
     
+    df_plot = pd.DataFrame(plot_data)
+    
+    plt.figure(figsize=(8, 6))
     colors = ['#95a5a6', '#2ecc71', '#e74c3c']
     
-    # Bubble chart: X=Complexity, Y=Stability (1/Std), Size=Accuracy
-    sizes = [(acc - 30) * 30 for acc in data['Accuracy']] # Scale for visibility
+    # Bubble chart
+    sizes = [(acc - 20) * 30 for acc in df_plot['Accuracy']]
     
-    plt.scatter(data['Complexity'], data['Std'], s=sizes, c=colors, alpha=0.7, edgecolors='black')
+    plt.scatter(df_plot['Complexity'], df_plot['Std'], s=sizes, c=colors, alpha=0.7, edgecolors='black')
     
     # Add labels
-    for i, method in enumerate(data['Method']):
-        plt.text(data['Complexity'][i], data['Std'][i] + 0.05, 
-                 f"{method}\nAcc: {data['Accuracy'][i]}%\nStd: {data['Std'][i]}", 
-                 ha='center', fontweight='bold')
-    
-    # Arrow for Pareto frontier
-    # plt.annotate('Pareto Efficient\n(Low Cost, High Stability)', xy=(2, 0.78), xytext=(4, 0.9),
-    #              arrowprops=dict(facecolor='black', shrink=0.05))
+    for i, row in df_plot.iterrows():
+        plt.text(row['Complexity'], row['Std'] + 0.05, 
+                 f"{row['Method']}\nAcc: {row['Accuracy']:.1f}%\nStd: {row['Std']:.2f}", 
+                 ha='center', fontweight='bold', fontsize=9)
 
     plt.title('The Complexity Gap: Stability vs. Complexity', fontsize=14, fontweight='bold')
     plt.ylabel('Instability (Standard Deviation) $\\downarrow$', fontsize=12)
@@ -125,11 +134,72 @@ def plot_complexity_tradeoff():
     plt.savefig(os.path.join(OUTPUT_DIR, 'fig3_complexity_gap.png'))
     plt.close()
 
+def plot_ablation_magnitude():
+    print("Generating Ablation: Magnitude Sensitivity...")
+    try:
+        df = pd.read_csv('outputs/ablation/ablation_p0.5_summary.csv')
+        df = df.sort_values('magnitude')
+        
+        plt.figure(figsize=(8, 6))
+        plt.plot(df['magnitude'], df['mean_val_acc'], marker='o', linewidth=2, color='#3498db', label='Validation Acc')
+        
+        # Highlight best
+        best_row = df.loc[df['mean_val_acc'].idxmax()]
+        plt.scatter([best_row['magnitude']], [best_row['mean_val_acc']], color='red', s=100, zorder=5, label='Optimal Magnitude')
+        
+        plt.title('Ablation: Impact of Magnitude (Fixed P=0.5)', fontsize=14, fontweight='bold')
+        plt.xlabel('Magnitude (m)')
+        plt.ylabel('Validation Accuracy (%)')
+        plt.grid(True, linestyle='--', alpha=0.5)
+        plt.legend()
+        
+        # Add annotation for the gap
+        min_acc = df['mean_val_acc'].min()
+        max_acc = df['mean_val_acc'].max()
+        plt.annotate(f'Gap: {max_acc - min_acc:.1f}%', 
+                     xy=(best_row['magnitude'], max_acc), 
+                     xytext=(best_row['magnitude']+0.1, max_acc - 2),
+                     arrowprops=dict(facecolor='black', shrink=0.05, width=1, headwidth=5))
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(OUTPUT_DIR, 'fig4_ablation_magnitude.png'))
+        plt.close()
+    except Exception as e:
+        print(f"Skipping Ablation plot: {e}")
+
+def plot_cifar10_generalization():
+    print("Generating CIFAR-10 Generalization Comparison...")
+    try:
+        df = pd.read_csv('outputs/cifar10_50shot_results.csv')
+        
+        plt.figure(figsize=(8, 6))
+        colors = ['#95a5a6', '#e74c3c', '#2ecc71']
+        
+        bars = plt.bar(df['Method'], df['Mean'], yerr=df['Std'], color=colors, capsize=10, alpha=0.8, edgecolor='black')
+        
+        plt.title('Generalization: CIFAR-10 (50-shot)', fontsize=14, fontweight='bold')
+        plt.ylabel('Mean Accuracy (%)')
+        plt.ylim(0, 70)
+        
+        # Add value labels
+        for bar in bars:
+            height = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width()/2., height + 2,
+                     f'{height:.1f}%', ha='center', va='bottom', fontweight='bold')
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(OUTPUT_DIR, 'fig5_cifar10_generalization.png'))
+        plt.close()
+    except Exception as e:
+        print(f"Skipping CIFAR-10 plot: {e}")
+
 if __name__ == "__main__":
     try:
         plot_stability_boxplot()
         plot_search_space_heatmap()
         plot_complexity_tradeoff()
-        print(f"Figures saved to {OUTPUT_DIR}")
+        plot_ablation_magnitude()
+        plot_cifar10_generalization()
+        print(f"\nAll figures saved successfully to: {OUTPUT_DIR}")
     except Exception as e:
         print(f"Error generating figures: {e}")

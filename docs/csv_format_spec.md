@@ -65,6 +65,33 @@ phase, op_name, magnitude, probability, seed, fold_idx, val_acc, val_loss, top5_
 | Phase B | 40 → 100 → 200 | ASHA 多轮淘汰 | 依赖淘汰结果 | 最终 rung 多 seed |
 | Phase C | 200 | min_epochs=60, patience=60, monitor=val_acc | 120-200 | 贪心组合 |
 | Phase D | 200 | min_epochs=60, patience=60, monitor=val_acc | 120-200 | 5 folds |
+| Supplement | varies | varies | varies | CIFAR-10 & Ablation |
+
+## 补充实验输出格式 (Supplementary)
+
+### CIFAR-10 Generalization (`outputs/cifar10_50shot_results.csv`)
+由于是简单的 5-fold 验证，此处仅记录最终汇总：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| Method | str | Baseline, RandAugment, Ours |
+| Mean | float | 平均 val_acc (%) |
+| Std | float | 标准差 |
+
+### Ablation Study (`outputs/ablation/ablation_p0.5_raw.csv`)
+复用统一字段定义 (`PhaseB` 格式)，但在 `phase` 字段填入 "PhaseB" (复用代码逻辑) 或 "Ablation"。
+
+### Ablation Summary (`outputs/ablation/ablation_p0.5_summary.csv`)
+用于论文绘图的聚合数据：
+
+| 字段 | 说明 |
+|------|------|
+| `op_name` | 操作名 (如 ColorJitter) |
+| `magnitude` | 搜索的幅度值 |
+| `probability` | 固定值 (0.5) |
+| `mean_val_acc` | 最终 epoch 的准确率 (ASHA max rung) |
+| `std_val_acc` | 标准差 (若单 seed 则为 0) |
+| `mean_runtime_sec` | 平均运行时间 |
 
 ## 论文写作用途
 

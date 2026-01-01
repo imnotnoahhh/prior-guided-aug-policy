@@ -149,6 +149,15 @@ MUTUAL_EXCLUSION = {
 | **训练** | 200 epochs/fold |
 | **方法** | Baseline, Baseline-NoAug, RandAugment, Cutout, Best_SingleOp, Ours_p1, Ours_optimal (7 个) |
 
+### 3.6 补充实验 (Supplementary Experiments)
+
+**目标**: 验证泛化性 (Generalization) 和设计必要性 (Necessity)
+
+| 实验 | 描述 | 目的 |
+|---|---|---|
+| **CIFAR-10 Generalization** | 50-shot setting, 5-fold, 200 epochs | 证明方法不局限于 CIFAR-100，具备通用鲁棒性 |
+| **Ablation (Fixed Probability)** | 固定 p=0.5，搜索 m | 证明搜索 Magnitude 的必要性 (Sensitivity Analysis) |
+
 ---
 
 ## 4. 超参数配置
@@ -192,4 +201,6 @@ outputs/
 ├── phase_c_final_policy.json    # Phase C 最终策略
 ├── phase_d_results.csv          # Phase D 原始结果
 └── phase_d_summary.csv          # Phase D 汇总结果 (论文用)
+├── ablation/                    # 消融实验结果
+└── cifar10_50shot_results.csv   # CIFAR-10 泛化实验结果
 ```

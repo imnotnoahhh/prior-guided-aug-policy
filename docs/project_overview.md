@@ -279,6 +279,15 @@ P(至少一个) = 1 - (1-0.04)(1-0.47) = 49% ≈ 50% ✓
 - `outputs/phase_d_summary.csv` - Mean ± Std 汇总（用于论文表格）
 - `outputs/checkpoints/phase_d_fold{0-4}_best.pth` - Ours_optimal 的 5-fold 模型
 
+### 3.5 补充实验 (Supplementary Experiments)
+
+**目标**: 验证泛化性 (Generalization) 和设计必要性 (Necessity)
+
+| 实验 | 描述 | 目的 |
+|---|---|---|
+| **CIFAR-10 Generalization** | 50-shot setting, 5-fold, 200 epochs | 证明方法不局限于 CIFAR-100，具备通用鲁棒性 |
+| **Ablation (Fixed Probability)** | 固定 p=0.5，搜索 m | 证明搜索 Magnitude 的必要性 (Sensitivity Analysis) |
+
 ---
 
 ## 4. 预期结果
@@ -367,6 +376,8 @@ outputs/
     ├── baseline_best.pth           # Baseline 最佳模型
     ├── phase_c_*.pth               # Phase C 策略 checkpoints
     └── phase_d_fold{0-4}_best.pth  # 最终 5-fold 模型
+├── ablation/                     # 消融实验结果
+└── cifar10_50shot_results.csv    # CIFAR-10 泛化实验结果
 ```
 
 ---

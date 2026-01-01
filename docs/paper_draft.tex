@@ -26,8 +26,7 @@ However, are these complex strategies necessary---or even harmful---when data is
 
 \begin{figure}[H]
     \centering
-    % 确保文件名和你上传的一致
-    \includegraphics[width=0.9\linewidth]{fig3_complexity_gap.png}
+    \includegraphics[width=0.9\linewidth]{../outputs/figures/fig3_complexity_gap.png}
     \caption{\textbf{The Complexity Gap.} We plot Instability (Standard Deviation) against Algorithmic Complexity. Our method (Green) lies on the Pareto frontier, achieving high accuracy with minimal complexity and maximum stability, whereas RandAugment (Red) trades stability for marginal gains.}
     \label{fig:complexity}
 \end{figure}
@@ -51,7 +50,7 @@ Surprisingly, our search "collapses" to a single operation, rejecting complex co
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=1.0\linewidth]{all_augmentations_grid.png}
+    \includegraphics[width=1.0\linewidth]{../outputs/figures/augment_examples/all_augmentations_grid.png}
     \caption{\textbf{Augmentation Search Space.} Visualization of the candidate operations applied to a sample image. While standard methods combine these aggressively, our Prior-Guided Search identifies that strictly limiting this pool (to just ColorJitter in our case) preserves semantic integrity and training stability.}
     \label{fig:augmentations}
 \end{figure}
@@ -61,7 +60,7 @@ We define a search space of $K=8$ operations (e.g., ColorJitter, RandomErasing),
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.8\linewidth]{fig2_search_space_colorjitter.png}
+    \includegraphics[width=0.8\linewidth]{../outputs/figures/fig2_search_space_colorjitter.png}
     \caption{\textbf{Prior-Guided Search Space.} Visualization of Phase A screening for \texttt{ColorJitter}. The colors indicate validation accuracy. Our search successfully identifies a high-performance region (marked in red) that balances magnitude and probability effectively.}
     \label{fig:search_space}
 \end{figure}
@@ -108,7 +107,7 @@ Table \ref{tab:main_results} compares our Prior-Guided approach against standard
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.8\linewidth]{fig1_stability_boxplot.png}
+    \includegraphics[width=0.8\linewidth]{../outputs/figures/fig1_stability_boxplot.png}
     \caption{\textbf{Stability Analysis.} Comparison of validation accuracy distributions over 5 folds. While RandAugment achieves slightly higher peak performance, our Prior-Guided Single-Op strategy demonstrates significantly lower variance ($\sigma=0.78$ vs $1.17$), offering a more reliable solution for small-sample regimes.}
     \label{fig:stability}
 \end{figure}
@@ -169,13 +168,21 @@ To evaluate the method's robustness across different datasets and sample regimes
         \bottomrule
     \end{tabular}
 \end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\linewidth]{../outputs/figures/fig5_cifar10_generalization.png}
+    \caption{\textbf{Generalization Performance.} Comparison on CIFAR-10 (50-shot). Our method achieves robustness comparable to state-of-the-art while maintaining zero variance across folds, outperforming the unaugmented baseline.}
+    \label{fig:cifar10_gen}
+\end{figure}
+
 The zero variance is due to performance saturation under this extreme low-data regime, where both methods consistently converge to the same solution across folds. Our method proves to be highly generalizable, matching the state-of-the-art performance of RandAugment even in this extreme low-data regime, while significantly outperforming the unaugmented baseline in terms of reliability.
 
 \subsection{Ablation: The Necessity of Magnitude Search}
 We investigated whether searching for Magnitude ($m$) is necessary, or if simply fixing Probability ($p$) would suffice. We fixed $p=0.5$ for the best operation (ColorJitter) and searched only for $m$ using 10 Sobol samples.
 \begin{figure}[H]
     \centering
-    % \includegraphics[width=0.8\linewidth]{ablation_fixed_p.png} % Placeholder
+    \includegraphics[width=0.8\linewidth]{../outputs/figures/fig4_ablation_magnitude.png}
     \caption{\textbf{Impact of Magnitude.} Even with fixed probability ($p=0.5$), varying magnitude significantly impacted performance. We observed a \textbf{4.2\% accuracy drop} between optimal magnitude ($m \approx 0.44$, 32.9\%) and standard magnitude ($m \approx 0.54$, 28.7\%). This confirms that Magnitude is a critical hyperparameter that cannot be arbitrarily fixed; it must be tuned.}
     \label{fig:ablation}
 \end{figure}
