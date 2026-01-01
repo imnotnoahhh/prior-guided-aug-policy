@@ -69,42 +69,25 @@ def main() -> int:
 
     print(f"Sample Index: {args.sample_idx}, Class: {class_name}")
 
-    # 1. Save Original
-    save_single_image(transforms.ToTensor()(pil_img), f"Original\n({class_name})", args.out_dir / "00_Original.png")
-    print("Saved 00_Original.png")
+    # 1. Skip Individual Saving (Requested by User)
     
     # 2. Base Augmentation (RandomCrop + HorizontalFlip)
-    # We simulate this by applying the pytorch transform manually
     base_tf = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(p=1.0), # Force flip for visibility
+        transforms.RandomHorizontalFlip(p=1.0), 
         transforms.ToTensor()
     ])
     base_img = base_tf(pil_img)
-    save_single_image(base_img, "Base Augmentation", args.out_dir / "01_BaseAugment.png")
-    print("Saved 01_BaseAugment.png")
 
-    # 3. Policy Operations
+    # 3. Policy Operations (Record but don't save individually)
     available_ops = AugmentationSpace.get_available_ops()
     op_images = []
     
     for i, op_name in enumerate(sorted(available_ops)):
-        # Build transform with max effect
         transform = build_transform_with_op(op_name, magnitude=1.0, probability=1.0)
-        
         try:
-            # Apply transform
-            # Note: build_transform_with_op returns a pipeline that expects PIL and returns Tensor
             aug_img_tensor = transform(pil_img)
-            
-            # Save individual
-            safe_name = op_name.replace(" ", "_")
-            out_name = f"02_Op_{safe_name}.png"
-            save_single_image(aug_img_tensor, op_name, args.out_dir / out_name)
-            
             op_images.append((op_name, aug_img_tensor))
-            print(f"Saved {out_name}")
-            
         except Exception as e:
             print(f"Skipping {op_name}: {e}")
 
@@ -135,7 +118,7 @@ def main() -> int:
         plt.title(name, fontsize=10)
         plt.axis("off")
         
-    # Add Class Name / Sample ID to bottom right (Footer)
+    # Footer
     footer_text = f"Sample #{args.sample_idx} ({class_name})"
     fig.text(0.98, 0.01, footer_text, 
              horizontalalignment='right', 
@@ -143,7 +126,9 @@ def main() -> int:
              fontsize=12, color='gray', style='italic')
 
     plt.tight_layout()
-    grid_path = args.out_dir / "all_augmentations_grid.png"
+    # Updated output path
+    grid_path = Path("outputs/figures/fig3_augmentation_grid.png")
+    grid_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(grid_path, dpi=200)
     plt.close()
     print(f"Saved Grid: {grid_path}")

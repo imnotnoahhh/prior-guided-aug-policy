@@ -1,0 +1,27 @@
+graph LR
+    subgraph "I. Search Space"
+    Input[Training Set] --> Pool["Augmentation Pool (K=8)<br/>Params: Magnitude, Prob"]
+    end
+
+    subgraph "II. Phase A: Screening"
+    Pool --> Sobol["Sobol Quasirandom<br/>Sampling (40 epochs)"]
+    Sobol --> Heatmap{Correlation<br/>Filter}
+    end
+
+    subgraph "III. Phase B: Tuning"
+    Heatmap --> ASHA["ASHA Scheduler<br/>(40 - 200 epochs)"]
+    ASHA --> Theta["Optimal Config<br/>(m*, p*)"]
+    end
+
+    subgraph "IV. Phase C: Composition"
+    Theta --> Greedy["Greedy Search<br/>+ Stability Penalty"]
+    Greedy --> Collapse["Strategic Collapse<br/>(N=1 Preferred)"]
+    end
+
+    subgraph "Result"
+    Collapse --> Final[Prior-Guided Policy]
+    end
+
+    style Final fill:#d5f5e3,stroke:#2ecc71,stroke-width:2px
+    style Input fill:#ebedef,stroke:#95a5a6,stroke-width:1px
+    style Collapse fill:#fdebd0,stroke:#f39c12,stroke-width:2px,stroke-dasharray: 5 5
