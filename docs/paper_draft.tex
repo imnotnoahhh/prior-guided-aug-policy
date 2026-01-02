@@ -123,11 +123,10 @@ Our pipeline is designed to be rigorous yet efficient, consisting of three phase
 \section{Experiments}
 
 \subsection{Setup}
-\subsection{Setup}
 \textbf{Dataset Splits.} We use CIFAR-100 subsampled to 100 images per class (10,000 total). Crucially, to avoid data leakage:
 \begin{itemize}
     \item \textbf{Search}: We use a stratified 5-fold cross-validation on the training data. For each fold, we split the 10,000 images into Train (90\%) and Validation (10\%).
-    \item \textbf{Evaluation}: The final policy is evaluated on the \textbf{Official CIFAR-100 Test Set} (10,000 images), ensuring zero leakage from the search phase.
+    \item \textbf{Evaluation}: We report the averaged performance across these 5 validation folds to ensure robust estimation.
 \end{itemize}
 
 \textbf{Training.} We use \textbf{ResNet-18} trained from scratch for 200 epochs (SGD, momentum 0.9, weight decay $1e^{-2}$, batch size 128). All experiments were performed on a single \textbf{NVIDIA A10 GPU}.
@@ -138,7 +137,7 @@ Table \ref{tab:main_results} compares our Prior-Guided approach against standard
 
 \begin{table}[H]
     \centering
-    \caption{Comparison on CIFAR-100 (100 samples/class). Results reported are \textbf{Cross-Validation Accuracy} over 5 folds (Search Phase). Final Test Set generalization is verified in Section \ref{sec:test_eval}.}
+    \caption{Comparison on CIFAR-100 (100 samples/class). Results reported are \textbf{Cross-Validation Accuracy} over 5 folds (Search Phase).}
     \label{tab:main_results}
     \begin{tabular}{lccc}
         \toprule

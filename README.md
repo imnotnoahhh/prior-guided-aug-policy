@@ -86,8 +86,7 @@ python scripts/run_final_tuned_ra.py      # Validation
 # Verify Strategic Collapse (Figure 2)
 python scripts/plot_strategic_collapse.py
 
-# Verify Official Test Set Accuracy (Table 1)
-python scripts/evaluate_final_policy.py
+
 ```
 
 ### 3. Visualization / 绘图
