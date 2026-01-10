@@ -47,8 +47,8 @@ Experiments conducted on CIFAR-100 (100 samples/class), ResNet-18, 5-Fold Cross-
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/prior-guided-aug.git
-cd prior-guided-aug
+git clone https://github.com/imnotnoahhh/Rethinking-Augmentation.git
+cd Rethinking-Augmentation
 
 # Create Conda environment
 conda env create -f environment.yml
