@@ -1,5 +1,4 @@
-# Research Plan: Prior-Guided Augmentation: A Reliable Strategy for Small-Sample Datasets
-# 实验计划：先验引导增强——小样本数据集的可靠策略
+# Research Plan: When More is Not Better: Rethinking Data Augmentation under Small-Sample Regimes
 
 **Target**: Academic Conference (WACV / BMVC / ICIP Level)
 **Dataset**: CIFAR-100 (Subsampled: 20% per class, Stratified)
@@ -162,7 +161,7 @@ MUTUAL_EXCLUSION = {
 | **Stability Verification** | 3 Random Seeds (42, 100, 2024) | 验证 "0 方差" 现象的复现性 |
 | **Tuned RandAugment** | Random Search (N=1~3, M=1~14) | 验证"即使调参也无法超越本方法" (Fairness) |
 | **Official Test Set Eval** | Evaluate on 10k Test Images | **FINAL STEP**: Avoid Data Leakage, fill Table 1 |
-| **Strategic Collapse** | Visualize Val Acc/Std vs #Ops | 证明贪心搜索自动拒绝复杂性 (Figure 2) |
+| **Policy Selection** | Visualize Val Acc/Std vs #Ops | Demonstrate greedy search rejects complexity (Figure 2) |
 
 ---
 

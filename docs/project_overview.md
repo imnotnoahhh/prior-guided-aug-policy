@@ -1,4 +1,4 @@
-# 先验引导增强：小样本数据集的可靠策略 (Prior-Guided Augmentation: A Reliable Strategy for Small-Sample Datasets)
+# When More is Not Better: Rethinking Data Augmentation under Small-Sample Regimes
 
 ## 项目概述
 
@@ -364,7 +364,7 @@ Ours_optimal ≥ RandAugment > Baseline > Baseline-NoAug
 
 ## 7. 核心创新点
 
-1.  **Complexity Gap Discovery**: 揭示了在小样本场景下，SOTA 级复杂增强（RandAugment）相对于最优单一增强（Best Single-Op）的收益递减现象，验证了“奥卡姆剃刀”原则。
+1.  **Accuracy-Stability Trade-off Discovery**: Revealed diminishing returns of complex augmentation (RandAugment) compared to optimal single-operation policy in small-sample regimes.
 2.  **Stability-First Strategy**: 提出将“稳定性”（低方差）作为小样本学习的关键指标，Ours 方法在保持竞争力的同时显著降低了模型方差（0.78 vs 1.17）。
 3.  **Prior-Guided Efficiency**: 展示了结合人类先验（2D 搜索空间）和 ASHA 早停的轻量级搜索流程，如何能快速定位到那个“性价比”最高的单一操作。
 4.  **Auto-Regularization**: Phase C 的贪心算法自动拒绝了额外的复杂操作，这种“策略坍缩”实际上是一种**自动正则化**行为，避免了过拟合。

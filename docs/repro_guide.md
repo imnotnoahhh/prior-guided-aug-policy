@@ -69,18 +69,18 @@ tail -f logs/full_run.log
 python scripts/generate_paper_figures.py
 ```
 该脚本会自动读取 `outputs/` 下的各类 CSV 结果，生成：
-- `fig1_complexity_gap.png`: 复杂度 vs 稳定性 vs 准确率
+- `fig1_complexity_gap.png`: Accuracy-Stability Trade-off
 - `fig4_search_space_colorjitter.png`: Phase A 搜索空间热力图
 - `fig5_stability_boxplot.png`: Phase D 稳定性箱线图 (5-fold)
 - `fig6_cifar10_generalization.png`: 泛化实验对比
 - `fig6_cifar10_generalization.png`: 泛化实验对比
 - `fig7_ablation_magnitude.png`: Magnitude 消融分析
-- `strategic_collapse.png`: 策略坍缩分析 (Figure 2)
+- `strategic_collapse.png`: Policy Selection Analysis (Figure 2)
 
 **输出目录**: `outputs/figures/`
 
-### 2. 策略坍缩可视化 (Strategic Collapse)
-单独生成 "策略坍缩" (Figure 2) 的分析图表：
+### 2. Policy Selection Visualization
+Generate Policy Selection (Figure 2) analysis chart:
 ```bash
 python scripts/plot_strategic_collapse.py
 ```

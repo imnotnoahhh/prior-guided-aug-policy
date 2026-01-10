@@ -1,27 +1,27 @@
-# Prior-Guided Augmentation: A Reliable Strategy for Small-Sample Datasets
-# 先验引导增强：小样本数据集的可靠策略
+# When More is Not Better: Rethinking Data Augmentation under Small-Sample Regimes
+# 小样本场景下的增强策略再思考：多未必更好
 
 [![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/release/python-3100/)
 [![PyTorch 2.5](https://img.shields.io/badge/pytorch-2.5-orange.svg)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> **Official PyTorch Implementation** of the paper: *"Prior-Guided Augmentation: A Reliable Strategy for Small-Sample Datasets"* (WACV/BMVC Submission Target).
+> **Official PyTorch Implementation** of the paper: *"When More is Not Better: Rethinking Data Augmentation under Small-Sample Regimes"* (WACV/BMVC Submission Target).
 > 
-> **官方实现**：本文提出了一种在极小样本（Low-Data Regime）下比 RandAugment 更稳定、更高效的数据增强搜索策略。
+> **Official Implementation**: This study reveals the counter-intuitive finding that increasing augmentation complexity often yields diminishing returns in small-sample regimes.
 
 ---
 
 ## 📖 Abstract / 摘要
 
 **English**:  
-Data augmentation is critical for deep learning in data-scarce regimes. While complex automated strategies like RandAugment achieve state-of-the-art results on large datasets, we reveal a **"Complexity Gap"** in small-sample settings (e.g., CIFAR-100, 100-shot): blindly increasing augmentation complexity yields diminishing returns while significantly increasing training instability. 
+Data augmentation is critical for deep learning in data-scarce regimes. While complex automated strategies like RandAugment achieve state-of-the-art results on large datasets, their efficacy in small-sample settings (e.g., CIFAR-100, 100-shot) remains under-explored. We find that blindly increasing augmentation complexity yields diminishing returns while significantly increasing training instability. 
 
-We propose a **Prior-Guided Augmentation** search framework that prioritizes **stability** and **semantic preservation**. Our method identifies a single, optimal operation (e.g., ColorJitter) that achieves competitive accuracy (40.74%) compared to RandAugment (42.24%) but with **significantly lower variance (Std: 0.78 vs 1.17)** and better interpretability. We further prove that "tuning" RandAugment fails in this regime, collapsing to weak augmentations (35.30%), whereas our method robustly finds the "Sweet Spot".
+Through a multi-phase search protocol combining Sobol sampling and ASHA scheduling, we discover that a single, well-tuned operation (ColorJitter) can achieve competitive accuracy (40.74%) compared to RandAugment (42.24%) but with **significantly lower variance (Std: 0.78 vs 1.17)**. Our findings suggest that in small-sample regimes, augmentation design should prioritize stability over complexity.
 
 **中文**:  
-在数据匮乏的场景下，数据增强至关重要。虽然像 RandAugment 这样的自动增强策略在大规模数据集上表现出色，但在小样本（如 CIFAR-100 每类 100 张）场景下，我们发现了一个**“复杂度陷阱 (Complexity Gap)”**：盲目增加增强操作的复杂度不仅收益递减，还会显著增加训练的不稳定性。
+在数据匮乏的场景下，数据增强至关重要。虽然像 RandAugment 这样的自动增强策略在大规模数据集上表现出色，但在小样本（如 CIFAR-100 每类 100 张）场景下，盲目增加增强操作的复杂度不仅收益递减，还会显著增加训练的不稳定性。
 
-我们提出了一种**先验引导 (Prior-Guided)** 的增强搜索框架，该框架将“稳定性”和“语义保真度”作为核心指标。实验表明，我们搜索到的单一最优操作（如 ColorJitter）虽然简单，但能达到与 RandAugment 相当的准确率（40.74% vs 42.24%），同时**方差显著降低（Std: 0.78 vs 1.17）**。进一步的对比实验证明，在小样本下直接对 RandAugment 进行调参会失效（仅 35.30%），而我们的方法能稳健地找到最佳平衡点。
+通过一套结合 Sobol 采样和 ASHA 调度的多阶段搜索流程，我们发现单一的、调优良好的操作（如 ColorJitter）能达到与 RandAugment 相当的准确率（40.74% vs 42.24%），同时**方差显著降低（Std: 0.78 vs 1.17）**。我们的发现表明，在小样本场景下，增强策略设计应优先考虑稳定性而非复杂度。
 
 ---
 
@@ -34,9 +34,9 @@ Experiments conducted on CIFAR-100 (100 samples/class), ResNet-18, 5-Fold Cross-
 | Baseline (S0) | 39.90 | 1.01 | Low | Basic Crop/Flip |
 | **RandAugment** (N=2,M=9) | **42.24** | 1.17 | High | **Unstable** (High Variance) |
 | **Tuned RandAugment** (N=1,M=2)| 35.30 | N/A | Low | Tuning fails (Underfitting) |
-| **Ours (Optimal)** | 40.74 | **0.78** | **Low** | **Most Stable & Reliable** |
+| **Single-Op (ColorJitter)** | 40.74 | **0.78** | **Low** | **Most Stable and Reliable** |
 
-### Why Ours? / 为什么选择我们的方法？
+### Why Single-Op? / Why single-operation policy?
 1.  **Zero Variance in Stability Check**: Verified to converge consistently (50.00% ± 0.00%) across 3 random seeds in 50-shot scenarios.
 2.  **High Semantic Fidelity**: LPIPS score (0.091) is comparable to baseline, unlike RandAugment (0.124) which distorts images heavily.
 3.  **Efficiency**: Search cost is only ~4 GPU hours, finding the optimal policy without expensive reinforcement learning.
@@ -83,7 +83,7 @@ python scripts/run_stability_check.py
 python scripts/run_tuning_randaugment.py  # Search
 python scripts/run_final_tuned_ra.py      # Validation
 
-# Verify Strategic Collapse (Figure 2)
+# Verify Policy Selection (Figure 2)
 python scripts/plot_strategic_collapse.py
 
 
@@ -127,7 +127,7 @@ If you find this work useful, please stay tuned! The citation will be updated up
 <!--
 ```bibtex
 @article{qin2026prior,
-  title={Prior-Guided Augmentation: A Reliable Strategy for Small-Sample Datasets},
+  title={When More is Not Better: Rethinking Data Augmentation under Small-Sample Regimes},
   author={Qin, Fuyao},
   journal={arXiv preprint},
   year={2026}
