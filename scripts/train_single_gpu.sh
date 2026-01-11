@@ -68,7 +68,7 @@ cd "${PROJECT_ROOT}"
 
 # Activate conda
 eval "$(conda shell.bash hook)"
-conda activate pga
+conda activate rethinking_aug
 
 mkdir -p "${LOG_DIR}" "${OUTPUT_DIR}" "${OUTPUT_DIR}/checkpoints"
 

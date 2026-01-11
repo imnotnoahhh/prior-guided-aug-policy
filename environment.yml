@@ -1,4 +1,4 @@
-name: pga
+name: rethinking_aug
 channels:
   - conda-forge
 dependencies:

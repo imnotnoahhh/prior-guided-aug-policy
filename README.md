@@ -52,7 +52,7 @@ cd Rethinking-Augmentation
 
 # Create Conda environment
 conda env create -f environment.yml
-conda activate pga
+conda activate rethinking_aug
 
 # (Optional) Verify installation
 python -c "import torch; print(torch.cuda.is_available())"

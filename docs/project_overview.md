@@ -345,7 +345,7 @@ Ours_optimal ≥ RandAugment > Baseline > Baseline-NoAug
 | **内存** | 128 GiB |
 | **CUDA** | 12.8 |
 | **Python** | 3.14.2 |
-| **Conda 环境** | pga |
+| **Conda 环境** | rethinking_aug |
 
 ---
 
