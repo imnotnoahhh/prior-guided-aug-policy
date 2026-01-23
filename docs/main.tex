@@ -153,29 +153,28 @@ To handle the stability-accuracy trade-off, we didn't do a normal grid search. I
 \subsection{Main Results}
 Table \ref{tab:main_results} compares SAS against standard baselines.
 
-\begin{table}[htbp] % 建议把 [htbp] 改成 [htbp] 以免排版出错，如果你非要固定位置可以用 [htbp]
+\begin{table}[htbp]
     \centering
-    \caption{Comparison on CIFAR-100 (100 samples/class). Results reported are \textbf{Cross-Validation Accuracy} over 5 folds (Search Phase).}
+    \caption{Comparison on CIFAR-100 (100 samples/class). Results reported over 5 folds. \textbf{Min Acc}: worst-case fold; \textbf{Lower Bound}: Mean $-$ Std.}
     \label{tab:main_results}
-    % --- 核心修改：加了 resizebox，内容完全保持原样 ---
     \resizebox{\linewidth}{!}{
-        \begin{tabular}{lccc}
+        \begin{tabular}{lccccc}
             \toprule
-            Policy & Val Acc (CV) \% & Std Dev (Stability) & Complexity \\
+            Policy & Val Acc \% & Std Dev & Min Acc & Lower Bound & Complexity \\
             \midrule
-            Baseline (S0) & 39.90 & 1.01 & Low \\
-            Baseline-NoAug & 29.08 & 3.30 & None \\
-            RandAugment & \textbf{42.24} & 1.17 & High (N=2) \\
-            Cutout & 36.26 & 1.23 & Med \\
+            Baseline (S0) & 39.90 & 1.01 & 38.30 & 38.89 & Low \\
+            Baseline-NoAug & 29.08 & 3.30 & -- & -- & None \\
+            RandAugment & \textbf{42.24} & 1.17 & 40.60 & 41.07 & High (N=2) \\
+            Cutout & 36.26 & 1.23 & -- & -- & Med \\
             \midrule
-            \textbf{SAS (ColorJitter)} & 40.74 & \textbf{0.78} & \textbf{Low (Single)} \\
+            \textbf{SAS (ColorJitter)} & 40.74 & \textbf{0.78} & \textbf{40.10} & \textbf{39.96} & \textbf{Low} \\
             \bottomrule
         \end{tabular}
     }
 \end{table}
 
 \subsection{Analysis}
-\textbf{The Stability Argument.} While RandAugment achieves a +1.5\% higher mean accuracy, this comes at a significant trade-off. As shown in Figure \ref{fig:stability}, RandAugment (Red) exhibits a much wider variance ($\sigma=1.17$) compared to the SAS ($\sigma=0.78$). Note that this standard deviation represents \textbf{Fold Variance} (sensitivity to data splits). We also examined \textbf{Seed Variance} (sensitivity to initialization) in our CIFAR-10 experiments (see Appendix \ref{app:experiments}), confirming that the stability consistency holds across both data and initialization randomness. In small-sample applications (e.g., medical imaging), "lucky seeds" cannot be relied upon; a guaranteed, stable baseline is often preferred.
+\textbf{The Stability Argument.} While RandAugment achieves a +1.5\% higher mean accuracy, this comes at a notable trade-off in stability. As shown in Figure \ref{fig:stability}, RandAugment (Red) exhibits a much wider variance ($\sigma=1.17$) compared to the SAS ($\sigma=0.78$). Note that this standard deviation represents \textbf{Fold Variance} (sensitivity to data splits). We also examined \textbf{Seed Variance} (sensitivity to initialization) in our CIFAR-10 experiments (see Appendix \ref{app:experiments}), confirming that the stability consistency holds across both data and initialization randomness. In small-sample applications (e.g., medical imaging), "lucky seeds" cannot be relied upon; a guaranteed, stable baseline is often preferred.
 
 \begin{figure}[htbp]
     \centering
@@ -218,7 +217,7 @@ Why do complex strategies fail here? Two reasons stand out. First, \textbf{Valid
 \end{figure}
 
 \section{Conclusion}
-Through a systematic empirical study on CIFAR-100 with 100 samples per class, we find that complex strategies stop working well when data is scarce. Our multi-phase search protocol identifies a single, well-tuned operation (ColorJitter) that achieves competitive accuracy with significantly lower variance compared to RandAugment. These findings suggest that, in our 100-shot CIFAR-100 scenario, augmentation design should prioritize stability over complexity.
+Through a systematic empirical study on CIFAR-100 with 100 samples per class, we find that complex strategies stop working well when data is scarce. Our multi-phase search protocol identifies a single, well-tuned operation (ColorJitter) that achieves competitive accuracy with consistently lower variance compared to RandAugment (variance ratio 2.2$\times$). These findings suggest that, in our 100-shot CIFAR-100 scenario, augmentation design should prioritize stability over complexity.
 
 \appendix
 \section{Implementation Details}

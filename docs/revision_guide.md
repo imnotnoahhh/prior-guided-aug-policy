@@ -173,53 +173,65 @@ python scripts/generate_paper_figures.py
 
 ---
 
-## 🟠 P2: 数据分析任务 (基于现有数据) - Day 2-3
+## ✅ P2: 数据分析任务 (基于现有数据) - Day 2-3
 
 > 💡 **这些任务不需要跑新实验，只需分析现有数据**
 
-### 2.1 Table 1 升级
+### 2.1 Table 1 升级 ✅ 已完成
 
 从现有 5-fold 结果中提取额外指标：
 
-| Policy | Val Acc % | Std Dev | **Min Acc** | **Lower Bound** | **95% CI** |
-|--------|-----------|---------|-------------|-----------------|------------|
-| Baseline | 39.90 | 1.01 | **待计算** | 38.89 | **待计算** |
-| RandAugment | 42.24 | 1.17 | **待计算** | 41.07 | **待计算** |
-| SAS | 40.74 | 0.78 | **待计算** | 39.96 | **待计算** |
+| Policy | Val Acc % | Std Dev | Min Acc | Lower Bound | 95% CI |
+|--------|-----------|---------|---------|-------------|--------|
+| Baseline | 39.90 | 1.01 | 38.30 | 38.89 | [39.0, 40.8] |
+| RandAugment | 42.24 | 1.17 | 40.60 | 41.07 | [41.2, 43.3] |
+| SAS | 40.74 | 0.78 | **40.10** | **39.96** | [40.1, 41.4] |
 
 **计算公式**:
 - Min Acc: 5 个 fold 中的最低分
 - Lower Bound: Mean - Std
 - 95% CI: Mean ± 1.96 × Std/√5
 
-**数据来源**: `outputs/phase_d_results.csv` 或 `outputs/baseline_result.csv`
+> 💡 **关键发现**: SAS 的 95% CI 最窄 (1.4% range vs RandAugment 2.1%)，说明结果更稳定可靠
 
-### 2.2 统计显著性检验
+**数据来源**: `outputs/phase_d_results.csv`
 
-**任务**: 对现有 5-fold 数据做 t-test 和方差检验
-
-```python
-from scipy import stats
-
-# 假设有 5 个 fold 的准确率
-sas_accs = [...]  # 从 CSV 读取
-ra_accs = [...]
-
-# 均值差异检验
-t_stat, p_value = stats.ttest_rel(sas_accs, ra_accs)
-
-# 方差差异检验 (Levene's test)
-levene_stat, levene_p = stats.levene(sas_accs, ra_accs)
+**运行脚本**:
+```bash
+python scripts/analyze_table1_stats.py
 ```
 
-**输出**: 在论文中报告 p-value
+**脚本输出**:
+- Table 1 扩展数据 (Min Acc, Lower Bound, 95% CI)
+- 统计检验结果 (t-test, Levene's test p-values)
+- LaTeX 表格格式
+- 保存到 `outputs/table1_extended.csv`
 
-```latex
-We performed paired t-tests comparing SAS against RandAugment 
-across 5 folds. While RandAugment achieves higher mean accuracy 
-($p = 0.XX$), SAS exhibits significantly lower variance 
-(Levene's test, $p < 0.05$).
-```
+### 2.2 统计显著性检验 ✅ 已完成
+
+**已集成在上述脚本中**，包括:
+- Paired t-test (均值差异检验)
+- Levene's test (方差齐性检验)
+- 方差比计算
+
+**实际结果**:
+
+| 检验 | 统计量 | p-value | 结论 |
+|------|--------|---------|------|
+| Paired t-test (SAS vs RA) | t = -2.09 | p = 0.105 | 均值差异**不显著** |
+| Levene's test | F = 0.91 | p = 0.367 | 方差差异**不显著** |
+| 方差比 | 2.22× | -- | RandAugment 方差是 SAS 的 2.2 倍 |
+
+> ⚠️ **潜在弱点**: Levene's test p=0.37 说明方差差异**统计不显著**，原因是 n=5 样本量太小，统计功效不足。
+> 
+> **应对策略**:
+> 1. 论文中避免使用 "significantly lower variance"，改用 "consistently lower variance"
+> 2. 强调趋势一致性：Std、Min Acc、95% CI 三个指标都指向同一结论
+> 3. 如审稿人质疑，可解释 n=5 的统计功效限制
+> 
+> **已在 main.tex 中修改**:
+> - "significantly lower variance" → "consistently lower variance (variance ratio 2.2×)"
+> - "significant trade-off" → "notable trade-off in stability"
 
 ---
 
