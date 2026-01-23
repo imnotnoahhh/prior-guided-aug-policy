@@ -158,9 +158,7 @@ MUTUAL_EXCLUSION = {
 | **Ablation (Fixed Probability)** | 固定 p=0.5，搜索 m | 证明搜索 Magnitude 的必要性 (Sensitivity Analysis) |
 | **Destructiveness Analysis** | Calculate SSIM/LPIPS metrics | 验证增强策略的语义保真度 (Semantic Preservation) |
 | **Stability Verification** | 3 Random Seeds (42, 100, 2024) | 验证 "0 方差" 现象的复现性 |
-| **Stability Verification** | 3 Random Seeds (42, 100, 2024) | 验证 "0 方差" 现象的复现性 |
 | **Tuned RandAugment** | Random Search (N=1~3, M=1~14) | 验证"即使调参也无法超越本方法" (Fairness) |
-| **Official Test Set Eval** | Evaluate on 10k Test Images | **FINAL STEP**: Avoid Data Leakage, fill Table 1 |
 | **Policy Selection** | Visualize Val Acc/Std vs #Ops | Demonstrate greedy search rejects complexity (Figure 2) |
 
 ---
@@ -198,17 +196,33 @@ python main_phase_c.py --dry_run
 
 ```
 outputs/
-├── phase0_summary.csv           # Phase 0 超参校准结果
-├── baseline_result.csv          # Baseline 结果
-├── phase_a_results.csv          # Phase A 筛选结果
-├── phase_b_tuning_summary.csv   # Phase B 汇总结果
-├── phase_c_history.csv          # Phase C 组合历史
-├── phase_c_final_policy.json    # Phase C 最终策略
-├── phase_d_results.csv          # Phase D 原始结果
-└── phase_d_summary.csv          # Phase D 汇总结果 (论文用)
-├── ablation/                    # 消融实验结果
-└── cifar10_50shot_results.csv   # CIFAR-10 泛化实验结果
-├── destructiveness_metrics.csv   # 破坏性分析
-├── stability_seeds_results.csv   # 稳定性验证
-└── tuned_randaugment_results.csv # 公平性对比
+├── phase0_calibration.csv        # Phase 0 原始结果
+├── phase0_summary.csv            # Phase 0 超参校准汇总
+├── baseline_result.csv           # Baseline 结果
+├── phase_a_results.csv           # Phase A 筛选结果
+├── phase_b_tuning_raw.csv        # Phase B 原始结果
+├── phase_b_tuning_summary.csv    # Phase B 汇总结果
+├── phase_c_history.csv           # Phase C 组合历史
+├── phase_c_final_policy.json     # Phase C 最终策略
+├── phase_d_results.csv           # Phase D 原始结果 (7 methods × 5 folds)
+├── phase_d_summary.csv           # Phase D 汇总结果 (论文用)
+├── ablation/                     # 消融实验结果
+│   ├── ablation_p0.5_raw.csv
+│   └── ablation_p0.5_summary.csv
+├── cifar10_50shot_results.csv    # CIFAR-10 泛化实验结果
+├── destructiveness_metrics.csv   # 破坏性分析 (SSIM/LPIPS)
+├── stability_seeds_results.csv   # 稳定性验证 (多 seed)
+├── tuned_randaugment_results.csv # 公平性对比
+├── final_tuned_ra_result.txt     # Tuned RA 最终结果
+├── table1_extended.csv           # Table 1 扩展统计
+└── figures/                      # 论文插图
+    ├── fig1_complexity_gap.png
+    ├── fig2_pipeline_schematic.png
+    ├── fig3_augmentation_grid.png
+    ├── fig4_search_space_colorjitter.png
+    ├── fig5_stability_boxplot.png
+    ├── fig6_cifar10_generalization.png
+    ├── fig7_ablation_magnitude.png
+    ├── fig8_destructiveness.png
+    └── strategic_collapse.png
 ```

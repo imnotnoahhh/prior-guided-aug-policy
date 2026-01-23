@@ -9,17 +9,28 @@
 
 ---
 
-## 📋 修改优先级总览 (重新排序版)
+## 📋 修改优先级总览 (最终版 - 13天倒计时)
 
-| 优先级 | 阶段 | 内容 | 是否需要实验 | 建议时间 |
-|--------|------|------|--------------|----------|
-| ✅ P0 | 已完成 | 匿名化 + 红旗问题文字说明 | ❌ | 已完成 |
-| 🔴 P1 | 写作任务 | Abstract/Intro/贡献点/SAS命名/伪代码 | ❌ | Day 1-2 |
-| 🟠 P2 | 数据分析 | 表格升级 + 统计检验 (现有数据) | ❌ | Day 2-3 |
-| 🟡 P3 | 核心实验 | Shot Sweep + 搜索消融 | ✅ 必做 | Day 4-7 |
-| 🟢 P4 | 增强实验 | 换Backbone + Seed方差 + 语义指标 | ✅ 建议 | Day 8-10 |
-| 🔵 P5 | 可选实验 | 可视化 + 效率 + ViT + 真实数据集 | ✅ 可选 | Day 11-12 |
-| ⚪ P6 | 提交检查 | PDF合规 + 最终校对 | ❌ | Day 13 |
+| 优先级 | 阶段 | 内容 | GPU/CPU | 时间 |
+|--------|------|------|---------|------|
+| ✅ P0 | 生死红线 | 匿名化 + 统计口径 + 启动 Shot Sweep | 混合 | 今天 |
+| 🔴 P1 | 核心翻盘 | Shot Sweep [20,50,100,200] + 搜索消融 + Failure Cases | GPU | Day 1-6 |
+| 🟠 P2 | 防守补丁 | 换 Backbone + Seed 方差 + Tuned RA 细节 | GPU | Day 7-9 |
+| 🟡 P3 | 锦上添花 | CLIP 语义指标 + 训练效率表格 | CPU | Day 10 |
+| ⚪ P4 | 提交检查 | PDF合规 + 最终校对 | CPU | Day 11-13 |
+
+### 止损检查点
+- **Day 3 前**: 必须拿到 20/50-shot 的 fold0 初步结果，画出第一版曲线
+- **Day 6 前**: Shot Sweep 至少完成 20/50/100 三个点的 5-fold
+- **Day 9 前**: Backbone 实验必须跑完
+- **任意附录项拖时间**: 立刻砍
+
+### 确认删除 (不再考虑)
+- ❌ 10-shot
+- ❌ 嵌套交叉验证
+- ❌ argmax 的 Label Consistency
+- ❌ ViT 与真实数据集 → Future Work
+- ⬇️ RA 局部扫描曲线 → GPU 闲时才做
 
 ---
 
@@ -46,8 +57,22 @@
 | K=8 算子列表 + 参数映射 | ✅ 已在 Section 3.1 和 Appendix A 添加 |
 | 目标函数 α=1.0 定义 | ✅ 已在 Phase C 添加公式 |
 | 复杂度 C 定义 | ✅ 已在 Section 3.1 添加 |
-| CIFAR-10 50% 零方差 | ✅ 论文已有 3-seed 验证说明 |
+| CIFAR-10 50% 零方差 | ✅ 论文已有 3-seed 验证说明 + 逐 seed 表格 |
 | 评估协议选择偏差 | ✅ 已在 Limitations 添加说明 |
+
+### 4. Table 1 话术修复 ✅ (新增)
+
+| 问题 | 修复方案 |
+|------|----------|
+| 统计口径不清 | ✅ Caption 明确 "5-fold CV with fixed seed (42)" |
+| Table 缺失列 | ✅ 补齐 NoAug/Cutout 的 Min Acc |
+| Min Acc "反打脸" | ✅ 移除 SAS Min Acc 加粗，不再声称下界优势 |
+| 话术调整 | ✅ 强调 "predictability" 而非绝对分数 |
+
+**关键修改**:
+- Table 1 移除 Lower Bound 列（避免暴露弱点）
+- 正文新增承认："While RandAugment's worst-case fold (40.60%) still exceeds SAS (40.10%)"
+- 强调方差 = 可预测性，不可预测性才是风险
 
 ---
 
@@ -124,12 +149,15 @@ Our contributions are threefold:
 **引用更新**:
 - Section 3.2 中的 `Procedure \ref{alg:phase_c}` → `Algorithm \ref{alg:sas}, Lines 17-23`
 
-### 1.5 相关工作补充
+### 1.5 相关工作补充 ✅
 
-**补充内容**:
-1. **与 AutoAugment/RandAugment 的本质区别**
-2. **Data-Efficient Learning (2024-2025)** 最新文献
-3. **Augmentation Stability** 相关研究
+**已完成** (`main.tex` Line 78-82, `references.bib`):
+
+1. **TrivialAugment** \cite{muller2021trivialaugment} - 单一随机增强方法，与我们的简单性结论呼应
+2. **Spectral Regularization** \cite{chen2024spectral} - JMLR 2024，理论解释增强的双重效应
+3. **Sample Efficiency** \cite{yang2023sample} - 增强一致性正则化在小样本下更高效
+
+**新增引用**: `references.bib` 添加 3 条 2021-2024 文献
 
 ### 1.6 Limitations 与 Future Work 扩展 ✅
 
@@ -235,58 +263,116 @@ python scripts/analyze_table1_stats.py
 
 ---
 
-## 🟡 P3: 核心实验 (必做) - Day 4-7
+## 🔴 P1: 核心翻盘证据 - Day 1-6
 
-> ⚠️ **这两个实验对论文增强效果最大，优先完成**
+> ⚠️ **GPU 是瓶颈，优先启动这些**
 
-### 3.1 Shot Sweep 实验 ⭐⭐⭐ (最高优先级)
+### 1.1 Shot Sweep ⭐⭐⭐ (最高优先级)
 
-**增强效果**: 极高 - 将单点实验升级为趋势规律，直接支撑核心论点
+**策略**: 先跑每个 shot 的 **fold0** 出趋势信号，确认后再补 fold1-4
 
 **设置**:
 - 数据集: CIFAR-100
-- Shot数: `[10, 20, 50, 100, 200]` samples/class
+- Shot数: `[20, 50, 100, 200]` (已删除 10-shot)
 - 方法: Baseline, RandAugment, SAS
 - 评估: 5-fold CV
+- **顺手记录**: epoch time / img/s (训练效率证据)
 
-**输出物** (3条曲线):
-1. **Accuracy vs Shot**: 各方法性能随样本数变化
-2. **Fold Std vs Shot**: 方差随样本数变化 (核心！)
+**输出物**:
+1. **Accuracy vs Shot**: 折线 + 阴影 (std 范围)
+2. **Fold Std vs Shot**: 重点突出 20/50-shot
 3. **Lower Bound vs Shot**: 最坏情况性能
 
 **预期故事**: 
-> 随着样本减少，RandAugment 方差剧增，而 SAS 保持稳定。展示"拐点"位置。
+> SAS 在 20/50-shot 下反超 RandAugment (方差更低，下界更高)
 
-**预计时间**: 2-3 天 (5 shot × 3 方法 × 5 fold × 200 epochs)
+### 1.2 搜索流程消融 ⭐⭐
 
-### 3.2 搜索流程消融 ⭐⭐ (高优先级)
+**设置**: 100-shot, CIFAR-100, 只做一次
 
-**增强效果**: 高 - 防守"运气选到 ColorJitter"的质疑，证明方法论必要性
-
-**三个版本对比**:
-1. **Phase A only**: 仅 Sobol 筛选
+**对比**:
+1. **Phase A only**: Sobol 筛选结果
 2. **Phase A + B**: 筛选 + ASHA 调优
-3. **Full SAS**: 筛选 + 调优 + Phase C 稳定性约束
+3. **Full SAS**: + Phase C 稳定性约束
 
-**输出物**:
+**输出**: 表格含选中的 Op 与强度参数 (证明调优有效)
 
-| Method | Mean Acc % | Std Dev | Lower Bound | Selected Op |
-|--------|------------|---------|-------------|-------------|
-| Phase A only | - | - | - | - |
-| Phase A + B | - | - | - | - |
-| Full SAS | 40.74 | 0.78 | 39.96 | ColorJitter |
+### 1.3 Failure Cases 可视化 ⭐⭐ (CPU 并行)
 
-**预计时间**: 1 天 (复用现有代码，只需分阶段跑)
+**协议** (固定，避免挑图质疑):
+- 验证集随机抽 N=10，seed=42 固定
+- 每张展示: 原图 → RandAugment (2次采样) → SAS (1次采样)
+- 标注: 预测结果、置信度、SSIM 值
+
+**放置位置**: Results 第一屏，Intro 放小 teaser (看版面)
 
 ---
 
-## 🟢 P4: 增强实验 (建议做) - Day 8-10
+## 🟠 P2: 防守性补丁 - Day 7-9
 
-> 💡 **这些实验能进一步增强说服力，按优先级排序**
+> 💡 **堵住"特例"和"运气"的质疑**
 
-### 4.1 更换 Backbone ⭐⭐ (高优先级)
+### 2.1 换 Backbone 泛化性 ⭐⭐
 
-**增强效果**: 高 - 证明结论泛化性，不仅限于 ResNet-18
+**增强效果**: 高 - 证明结论不仅限于 ResNet-18
+
+**设置**:
+- CIFAR-100, 100-shot
+- WRN-28-10 或 ResNet-34 (二选一)
+- 至少跑 RA 与 SAS，能跑 Baseline 更好
+
+### 2.2 Seed 方差 ⭐
+
+**最小可信版本**: 2 folds × 3 seeds = 6 次训练
+- 至少覆盖 RandAugment 与 SAS
+- GPU 紧: 2 folds × 2 seeds 也可以
+
+**输出**: Seed Std vs Fold Std 对照表
+
+### 2.3 Tuned RandAugment 细节补全 (写作项)
+
+写清:
+- 搜索空间、预算、每次训练 epoch
+- 验证集构建、选择准则
+- 把 35.30% 低分解释为小样本下 validation overfitting
+
+---
+
+## 🟡 P3: 锦上添花 - Day 10
+
+### 3.1 语义一致性指标 (放附录)
+
+**优先**: CLIP 特征余弦相似度
+**止损**: 环境配置超 60 分钟直接放弃，改用 ResNet-50 特征余弦或不做
+
+### 3.2 训练效率对比
+
+用 Shot Sweep 日志汇总，表格一行即可
+
+---
+
+## ⚪ P4: 只有 GPU 闲到发慌才做
+
+### 4.1 RA 局部扫描曲线
+
+固定 N=2 扫描 M=[1..14]，固定 M=9 扫描 N=[1,2,3]
+
+---
+
+## 🔵 已删除项 (不再考虑)
+
+| 项目 | 删除原因 |
+|------|----------|
+| 10-shot | 信噪比太低，容易变噪声 |
+| 嵌套交叉验证 | 时间成本大，现有协议已足够 |
+| argmax Label Consistency | Domain Mismatch 陷阱 |
+| ViT / 真实数据集 | 放 Future Work |
+
+---
+
+## 📊 原 P4 内容 (已合并到上方)
+
+### 更换 Backbone 详细设置
 
 **设置**:
 - 数据: CIFAR-100, 100-shot

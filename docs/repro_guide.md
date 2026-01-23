@@ -19,7 +19,8 @@ bash scripts/train_single_gpu.sh
 
 ## 验证
 - 冒烟：`python main_phase_a.py --dry_run` 等各阶段 dry_run 模式（1-2 epoch）。
-- 完整：`phase_d_summary.csv` 应含 7 methods 的 Mean ± Std。
+- 完整：`phase_d_results.csv` 应含 7 methods × 5 folds = 35 行结果。
+- 汇总：`phase_d_summary.csv` 包含各方法的 Mean ± Std 统计。
 
 ## 补充实验复现 (Paper Revision)
 为了回应审稿人关于“破坏性”和“公平性”的质疑，请运行以下脚本：
@@ -47,10 +48,7 @@ python scripts/run_tuned_randaugment.py
 
 # 步骤 2: 使用最佳参数 (N=1, M=2) 跑全量验证
 python scripts/run_final_tuned_ra.py
-# Output: Console logs
-# 步骤 2: 使用最佳参数 (N=1, M=2) 跑全量验证
-python scripts/run_final_tuned_ra.py
-# Output: Console logs
+# Output: outputs/final_tuned_ra_result.txt
 
 
 
@@ -73,8 +71,8 @@ python scripts/generate_paper_figures.py
 - `fig4_search_space_colorjitter.png`: Phase A 搜索空间热力图
 - `fig5_stability_boxplot.png`: Phase D 稳定性箱线图 (5-fold)
 - `fig6_cifar10_generalization.png`: 泛化实验对比
-- `fig6_cifar10_generalization.png`: 泛化实验对比
 - `fig7_ablation_magnitude.png`: Magnitude 消融分析
+- `fig8_destructiveness.png`: 语义保真度分析 (SSIM/LPIPS)
 - `strategic_collapse.png`: Policy Selection Analysis (Figure 2)
 
 **输出目录**: `outputs/figures/`

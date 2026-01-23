@@ -70,13 +70,24 @@ phase, op_name, magnitude, probability, seed, fold_idx, val_acc, val_loss, top5_
 ## 补充实验输出格式 (Supplementary)
 
 ### CIFAR-10 Generalization (`outputs/cifar10_50shot_results.csv`)
-由于是简单的 5-fold 验证，此处仅记录最终汇总：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | Method | str | Baseline, RandAugment, Ours |
 | Mean | float | 平均 val_acc (%) |
 | Std | float | 标准差 |
+| Seeds | str | 使用的随机种子列表 (JSON 格式) |
+| Accs | str | 各 seed 的准确率列表 (JSON 格式) |
+
+### Stability Verification (`outputs/stability_seeds_results.csv`)
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| Method | str | RandAugment, Ours |
+| Mean | float | 平均 val_acc (%) |
+| Std | float | 标准差 |
+| Seeds | str | 使用的随机种子列表 (JSON 格式) |
+| Accs | str | 各 seed 的准确率列表 (JSON 格式) |
 
 ### Ablation Study (`outputs/ablation/ablation_p0.5_raw.csv`)
 复用统一字段定义 (`PhaseB` 格式)，但在 `phase` 字段填入 "PhaseB" (复用代码逻辑) 或 "Ablation"。
@@ -89,9 +100,39 @@ phase, op_name, magnitude, probability, seed, fold_idx, val_acc, val_loss, top5_
 | `op_name` | 操作名 (如 ColorJitter) |
 | `magnitude` | 搜索的幅度值 |
 | `probability` | 固定值 (0.5) |
-| `mean_val_acc` | 最终 epoch 的准确率 (ASHA max rung) |
+| `mean_val_acc` | 最终 epoch 的准确率 |
 | `std_val_acc` | 标准差 (若单 seed 则为 0) |
+| `mean_top5_acc` | Top-5 准确率均值 |
+| `std_top5_acc` | Top-5 准确率标准差 |
+| `mean_train_acc` | 训练集准确率均值 |
+| `std_train_acc` | 训练集准确率标准差 |
 | `mean_runtime_sec` | 平均运行时间 |
+| `n_seeds` | 使用的 seed 数量 |
+
+### Destructiveness Metrics (`outputs/destructiveness_metrics.csv`)
+语义保真度分析结果：
+
+| 字段 | 说明 |
+|------|------|
+| `Strategy` | 增强策略名称 |
+| `SSIM_Mean` | SSIM 均值 (越高越好) |
+| `SSIM_Std` | SSIM 标准差 |
+| `LPIPS_Mean` | LPIPS 均值 (越低越好) |
+| `LPIPS_Std` | LPIPS 标准差 |
+
+### Table 1 Extended (`outputs/table1_extended.csv`)
+论文 Table 1 扩展统计数据：
+
+| 字段 | 说明 |
+|------|------|
+| `Method` | 方法名 (Baseline, RandAugment, SAS) |
+| `Mean` | 5-fold 均值准确率 |
+| `Std` | 5-fold 标准差 |
+| `Min Acc` | 最小准确率 |
+| `Lower Bound` | Mean - Std |
+| `95% CI Low` | 95% 置信区间下界 |
+| `95% CI High` | 95% 置信区间上界 |
+| `Fold Values` | 各 fold 准确率列表 |
 
 ## 论文写作用途
 

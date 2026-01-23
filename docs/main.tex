@@ -77,9 +77,11 @@ Our contributions are threefold:
 
 \section{Related Work}
 
-\textbf{Automated Data Augmentation.} Original works like AutoAugment \cite{cubuk2019autoaugment} formulated augmentation design as a discrete search problem using Reinforcement Learning. While it did well, it cost too much to compute. Later methods like RandAugment \cite{cubuk2020randaugment} made this easier by reducing the search space to two parameters ($N, M$) and doing a grid search. But, these methods are mainly made for and adjusted on big datasets (ImageNet, full CIFAR-100). Our work shows that their main idea---that complexity leads to performance---doesn't hold up when data is scarce.
+\textbf{Automated Data Augmentation.} AutoAugment \cite{cubuk2019autoaugment} formulated augmentation design as a discrete search problem using Reinforcement Learning. While effective, it was computationally prohibitive. RandAugment \cite{cubuk2020randaugment} simplified this by reducing the search space to two parameters ($N, M$). More recently, TrivialAugment \cite{muller2021trivialaugment} showed that applying a \textit{single random augmentation} per image can match or exceed complex policies---a finding that resonates with our conclusions about simplicity. However, these methods were developed and tuned on large-scale datasets (ImageNet, full CIFAR-100). Our work demonstrates that the ``complexity leads to performance'' assumption fails when data is scarce, where stability becomes the primary concern.
 
-\textbf{Small-Sample Learning.} When data is scarce, models often suffer from high variance. While transfer learning is a common solution, it doesn't apply when domains don't match, forcing us to train from scratch. In this case, strong augmentations (like Cutout \cite{devries2017improved}) can compromise the limited semantic information available. Our work follows the ideas of ``Data-Centric AI,'' aiming to adjust the data distribution to better fit what the model can do. Our work also relates to recent discussions on simplicity and negative results in model design.
+\textbf{Understanding Augmentation Effects.} Recent theoretical work \cite{chen2024spectral} reveals that data augmentation operates through implicit spectral regularization, manipulating the eigenvalue structure of data covariance matrices. This explains why augmentations can both help and hurt generalization depending on the data regime. Yang et al.~\cite{yang2023sample} show that augmentation consistency regularization is inherently more sample-efficient than standard augmented training. Our empirical findings align with these insights: in small-sample regimes, simpler augmentations provide more stable regularization without the variance introduced by complex policies.
+
+\textbf{Small-Sample Learning.} When data is scarce, models suffer from high variance. While transfer learning is common, it doesn't apply when domains mismatch, forcing training from scratch. In this setting, aggressive augmentations (like Cutout \cite{devries2017improved}) can destroy limited semantic information. Our work takes a ``Data-Centric AI'' perspective, adapting the augmentation strategy to the data regime rather than assuming one-size-fits-all policies.
 
 \section{Augmentation Search Protocol}
 
@@ -155,26 +157,26 @@ Table \ref{tab:main_results} compares SAS against standard baselines.
 
 \begin{table}[htbp]
     \centering
-    \caption{Comparison on CIFAR-100 (100 samples/class). Results reported over 5 folds. \textbf{Min Acc}: worst-case fold; \textbf{Lower Bound}: Mean $-$ Std.}
+    \caption{Comparison on CIFAR-100 (100 samples/class). All results are mean $\pm$ std over 5-fold CV with a fixed seed (42). \textbf{Std Dev} measures sensitivity to data splits.}
     \label{tab:main_results}
     \resizebox{\linewidth}{!}{
-        \begin{tabular}{lccccc}
+        \begin{tabular}{lcccc}
             \toprule
-            Policy & Val Acc \% & Std Dev & Min Acc & Lower Bound & Complexity \\
+            Policy & Val Acc \% & Std Dev $\downarrow$ & Min Acc & Complexity \\
             \midrule
-            Baseline (S0) & 39.90 & 1.01 & 38.30 & 38.89 & Low \\
-            Baseline-NoAug & 29.08 & 3.30 & -- & -- & None \\
-            RandAugment & \textbf{42.24} & 1.17 & 40.60 & 41.07 & High (N=2) \\
-            Cutout & 36.26 & 1.23 & -- & -- & Med \\
+            Baseline (S0) & 39.90 & 1.01 & 38.30 & Low \\
+            Baseline-NoAug & 29.08 & 3.30 & 23.90 & None \\
+            RandAugment & \textbf{42.24} & 1.17 & \textbf{40.60} & High (N=2) \\
+            Cutout & 36.26 & 1.23 & 34.50 & Med \\
             \midrule
-            \textbf{SAS (ColorJitter)} & 40.74 & \textbf{0.78} & \textbf{40.10} & \textbf{39.96} & \textbf{Low} \\
+            \textbf{SAS (ColorJitter)} & 40.74 & \textbf{0.78} & 40.10 & \textbf{Low} \\
             \bottomrule
         \end{tabular}
     }
 \end{table}
 
 \subsection{Analysis}
-\textbf{The Stability Argument.} While RandAugment achieves a +1.5\% higher mean accuracy, this comes at a notable trade-off in stability. As shown in Figure \ref{fig:stability}, RandAugment (Red) exhibits a much wider variance ($\sigma=1.17$) compared to the SAS ($\sigma=0.78$). Note that this standard deviation represents \textbf{Fold Variance} (sensitivity to data splits). We also examined \textbf{Seed Variance} (sensitivity to initialization) in our CIFAR-10 experiments (see Appendix \ref{app:experiments}), confirming that the stability consistency holds across both data and initialization randomness. In small-sample applications (e.g., medical imaging), "lucky seeds" cannot be relied upon; a guaranteed, stable baseline is often preferred.
+\textbf{The Stability Argument.} While RandAugment achieves +1.5\% higher mean accuracy, this comes at the cost of \textbf{predictability}. As shown in Figure \ref{fig:stability}, RandAugment exhibits 50\% higher variance ($\sigma=1.17$ vs.\ $0.78$). This standard deviation represents \textbf{Fold Variance}---sensitivity to how training data is split. While RandAugment's worst-case fold (40.60\%) still exceeds SAS (40.10\%), practitioners cannot reliably predict which fold will perform well. We separately verified \textbf{Seed Variance} (sensitivity to initialization) in CIFAR-10 experiments (Appendix \ref{app:experiments}). In safety-critical applications (e.g., medical imaging), unpredictable performance across data splits is unacceptable; a method with tighter variance bounds is preferred even at a small accuracy cost.
 
 \begin{figure}[htbp]
     \centering
@@ -320,7 +322,21 @@ To evaluate generalization across different datasets and sample regimes, we perf
     \label{fig:cifar10_gen}
 \end{figure}
 
-The zero variance is due to performance saturation under this extreme small-sample regime, where both methods consistently converge to the same solution across folds. To address concerns regarding the "zero-variance " result, we further verified this experiment across 3 different random initialization seeds (42, 100, 2024). In all cases, both RandAugment and the SAS converged to exactly 50.00\%, confirming that zero variance is a reproducible saturation effect and not an artifact of a specific random seed. The SAS proves to be generalizable, matching the performance of RandAugment in this extreme small-sample regime, while significantly outperforming the unaugmented baseline in terms of reliability.
+The zero variance is due to performance saturation under this extreme small-sample regime, where both methods consistently converge to the same solution across folds. To verify this is not an artifact, we tested 3 different random initialization seeds:
+
+\begin{center}
+\small
+\begin{tabular}{lccc}
+\toprule
+Method & Seed 42 & Seed 100 & Seed 2024 \\
+\midrule
+RandAugment & 50.00\% & 50.00\% & 50.00\% \\
+SAS & 50.00\% & 50.00\% & 50.00\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All seeds converge to exactly 50.00\%, confirming this is a reproducible saturation effect. In this extreme regime, SAS matches RandAugment while providing the same stability guarantees observed in CIFAR-100.
 
 \subsection{Ablation: The Necessity of Magnitude Search}
 We investigated whether searching for Magnitude ($m$) is necessary, or if simply fixing Probability ($p$) would suffice. We fixed $p=0.5$ for the best operation (ColorJitter) and searched only for $m$ using 10 Sobol samples.
