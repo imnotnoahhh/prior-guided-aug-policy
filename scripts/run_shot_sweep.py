@@ -472,6 +472,8 @@ def main():
     if sas_config is None:
         sas_config = ("ColorJitter", 0.35, 0.8)
         print(f"Using default SAS config: {sas_config}")
+    else:
+        print(f"Using SAS config: {sas_config}")
     
     # Setup
     output_dir = Path(args.output_dir)

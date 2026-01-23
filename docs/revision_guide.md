@@ -282,38 +282,53 @@ python scripts/analyze_table1_stats.py
 
 | Step | 命令 | 训练次数 | 预计时间 | 目的 |
 |------|------|----------|----------|------|
-| 1 | `--shots 50 --folds 0 --epochs 50` | 3 | ~30-45 min | 验证代码 + 看方向信号 |
-| 2 | `--shots 50,20 --folds 0 --epochs 50` | 6 | ~1-1.5h | 判断是否值得投入 |
-| 3 | `--shots 20,50,200 --folds 0,1,2,3,4 --epochs 200` | 45 | ~10-12h | 完整结果 |
+| 1 | `--shots 50 --methods Baseline,SAS` | 2 | ~15-20 min | 验证 SAS 是否正常收敛 |
+| 2 | `--shots 50,20 --methods Baseline,RandAugment,SAS` | 6 | ~1-1.5h | 判断是否值得投入 |
+| 3 | `--shots 20,50,200 --folds 0,1,2,3,4` | 45 | ~10-12h | 完整结果 |
+
+**重要**: 每个 Step 使用独立 output_dir，避免结果污染和跳过！
 
 ```bash
-# Step 1: 方向性信号 (~30-45 min)
-python scripts/run_shot_sweep.py --shots 50 --folds 0 --epochs 50
+# Step 1: 验证 SAS 收敛 (~15-20 min)
+# 只跑 Baseline 和 SAS，省时间
+python scripts/run_shot_sweep.py --shots 50 --folds 0 --epochs 50 \
+  --methods Baseline,SAS --output_dir outputs_step1 --batch_size 128 --num_workers 8
 
-# Step 2: 加 20-shot 判断趋势 (~1-1.5h total)
-python scripts/run_shot_sweep.py --shots 50,20 --folds 0 --epochs 50
+# Step 2: 加 RandAugment 和 20-shot 判断趋势 (~1-1.5h total)
+# 独立目录，避免复用 Step1 的 50 epoch 结果
+python scripts/run_shot_sweep.py --shots 50,20 --folds 0 --epochs 50 \
+  --methods Baseline,RandAugment,SAS --output_dir outputs_step2 --batch_size 128 --num_workers 8
 
 # 画图检查趋势
-python scripts/plot_shot_sweep.py
+python scripts/plot_shot_sweep.py --output_dir outputs_step2
 
 # Step 3: 完整版 (只有 Step 2 有意义才跑)
-python scripts/run_shot_sweep.py --shots 20,50,200 --folds 0,1,2,3,4 --epochs 200
+# 独立目录，200 epoch 结果不与 50 epoch 混合
+python scripts/run_shot_sweep.py --shots 20,50,200 --folds 0,1,2,3,4 --epochs 200 \
+  --methods Baseline,RandAugment,SAS --output_dir outputs_final --batch_size 128 --num_workers 8
 
-# 100-shot 会自动从 phase_d_results.csv 复用
+# 画最终图
+python scripts/plot_shot_sweep.py --output_dir outputs_final
 ```
 
-**止损规则** (任一条触发则停止):
+**止损规则** (任一条触发则检查):
 - loss 不下降 / acc 接近随机 → 检查数据加载或超参
 - 增强没生效 (图像几乎一样) → 检查 transform 代码
 - 训练异常慢 / 频繁报错 → 检查 GPU 状态或内存
-- CSV 结果重复 / 缺失 → 检查 reuse 逻辑
 
-**输出物**:
-- `outputs/shot_sweep_results.csv` (原始结果)
-- `outputs/shot_sweep_summary.csv` (汇总统计)
-- `outputs/figures/fig_shot_sweep_accuracy.png` (折线 + 阴影)
-- `outputs/figures/fig_shot_sweep_std.png` (方差柱状图)
-- `outputs/figures/fig_shot_sweep_combined.png` (论文用组合图)
+**Step 2 → Step 3 判断** (满足任一条才上 Step 3):
+- 20-shot: SAS 的 lower bound (mean - std) ≥ RA
+- 50-shot: SAS 的 std ≤ RA
+
+两条都不满足 → 暂停 Step 3，调整 SAS 强度或转换叙事
+
+**备选叙事** (如果 SAS 未能显著优于 RA):
+> 转向强调 "lower bound 稳定性" 和 "避免语义破坏"，而非绝对准确率优势
+
+**输出物** (每个 Step 独立目录):
+- `outputs_stepX/shot_sweep_results.csv` (原始结果)
+- `outputs_stepX/shot_sweep_summary.csv` (汇总统计)
+- `outputs_stepX/figures/fig_shot_sweep_*.png` (可视化)
 
 **预期故事**: 
 > SAS 在 20/50-shot 下反超 RandAugment (方差更低，下界更高)
