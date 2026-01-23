@@ -13,27 +13,38 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def plot_stability_boxplot():
     print("Generating Stability Boxplot...")
+    import numpy as np
+    np.random.seed(42)  # Fix jitter positions for reproducibility
+    
     df = pd.read_csv('outputs/phase_d_results.csv')
     
     # Rename op_name to method for clarity
     if 'op_name' in df.columns:
         df.rename(columns={'op_name': 'method'}, inplace=True)
     
-    # Filter methods
-    methods = ['Baseline', 'RandAugment', 'Ours_optimal'] 
-    df = df[df['method'].isin(methods)]
+    # Filter methods and rename for display
+    methods_data = ['Baseline', 'RandAugment', 'Ours_optimal'] 
+    methods_display = ['Baseline', 'RandAugment', 'SAS (Ours)']  # Updated display names
+    df = df[df['method'].isin(methods_data)]
     
-    # Order
-    df['method'] = pd.Categorical(df['method'], categories=methods, ordered=True)
+    # Rename for display
+    df['method'] = df['method'].replace({'Ours_optimal': 'SAS (Ours)'})
+    
+    # Order - set as categorical and sort
+    df['method'] = pd.Categorical(df['method'], categories=methods_display, ordered=True)
+    df = df.sort_values('method')  # Ensure data is sorted by category order
     
     plt.figure(figsize=(8, 6))
     
     # Custom color palette
-    colors = {'Baseline': '#95a5a6', 'RandAugment': '#e74c3c', 'Ours_optimal': '#2ecc71'}
+    colors = {'Baseline': '#95a5a6', 'RandAugment': '#e74c3c', 'SAS (Ours)': '#2ecc71'}
     
-    # Use hue to fix the FutureWarning and set legend=False
-    sns.boxplot(x='method', y='val_acc', hue='method', data=df, palette=colors, width=0.5, legend=False)
-    sns.stripplot(x='method', y='val_acc', data=df, color='black', alpha=0.6, jitter=0.1)
+    # Use order parameter to ensure consistent ordering
+    # showfliers=False to avoid overlap with stripplot points
+    sns.boxplot(x='method', y='val_acc', hue='method', data=df, palette=colors, 
+                width=0.5, legend=False, order=methods_display, showfliers=False)
+    sns.stripplot(x='method', y='val_acc', data=df, color='black', alpha=0.7, 
+                  jitter=0.05, order=methods_display, size=6)  # Slight jitter to avoid overlap
     
     plt.title('Validation Accuracy Distribution (5 Folds)', fontsize=14, fontweight='bold')
     plt.ylabel('Top-1 Accuracy (%)')
@@ -41,7 +52,7 @@ def plot_stability_boxplot():
     
     # Add Std Dev annotation
     stats = df.groupby('method', observed=True)['val_acc'].agg(['mean', 'std'])
-    for i, method in enumerate(methods):
+    for i, method in enumerate(methods_display):
         mean = stats.loc[method, 'mean']
         std = stats.loc[method, 'std']
         plt.text(i, mean + 1.5, f"Mean: {mean:.1f}%\n$ \\sigma $: {std:.2f}",
@@ -70,9 +81,15 @@ def plot_search_space_heatmap():
     plt.xlabel('Probability ($p$)')
     plt.ylabel('Magnitude ($m$)')
     
-    # Highlight the chosen point
-    plt.scatter([0.42], [0.25], s=250, facecolors='none', edgecolors='red', linewidth=3, label='Optimal Configuration')
-    plt.legend(loc='upper left')
+    # Find and highlight the actual optimal point (highest val_acc)
+    best_idx = df_op['val_acc'].idxmax()
+    best_p = df_op.loc[best_idx, 'probability']
+    best_m = df_op.loc[best_idx, 'magnitude']
+    best_acc = df_op.loc[best_idx, 'val_acc']
+    
+    plt.scatter([best_p], [best_m], s=250, facecolors='none', edgecolors='red', linewidth=3, 
+                label=f'Optimal (p={best_p:.2f}, m={best_m:.2f}, Acc={best_acc:.1f}%)')
+    plt.legend(loc='upper left', fontsize=9)
     
     plt.xlim(0, 1.0)
     plt.ylim(0, 1.0)
@@ -88,7 +105,7 @@ def plot_complexity_tradeoff():
     
     method_map = {
         'Baseline': 'Baseline',
-        'Ours_optimal': 'Ours (Optimal)',
+        'Ours_optimal': 'SAS (Ours)',  # Updated name
         'RandAugment': 'RandAugment'
     }
     
@@ -100,7 +117,7 @@ def plot_complexity_tradeoff():
                 'Method': label,
                 'Accuracy': row.iloc[0]['mean_val_acc'],
                 'Std': row.iloc[0]['std_val_acc'],
-                'Complexity': 1 if m_id == 'Baseline' else (2 if m_id == 'Ours_optimal' else 8)
+                'Complexity': 1 if m_id == 'Baseline' else (4 if m_id == 'Ours_optimal' else 8)
             })
     
     df_plot = pd.DataFrame(plot_data)
@@ -118,11 +135,34 @@ def plot_complexity_tradeoff():
                  f"{row['Method']}\nAcc: {row['Accuracy']:.1f}%\n$ \\sigma $: {row['Std']:.2f}", 
                  ha='center', fontweight='bold', fontsize=10)
 
+    # === NEW: Add arrow and "33% variance reduction" annotation ===
+    # Get SAS and RandAugment data
+    sas_row = df_plot[df_plot['Method'] == 'SAS (Ours)'].iloc[0]
+    ra_row = df_plot[df_plot['Method'] == 'RandAugment'].iloc[0]
+    
+    # Draw arrow from RandAugment to SAS
+    plt.annotate('', 
+                 xy=(sas_row['Complexity'], sas_row['Std']),  # arrow head
+                 xytext=(ra_row['Complexity'], ra_row['Std']),  # arrow tail
+                 arrowprops=dict(arrowstyle='->', color='#e74c3c', lw=2, 
+                                connectionstyle='arc3,rad=-0.2'))
+    
+    # Calculate variance reduction percentage
+    variance_reduction = (ra_row['Std'] - sas_row['Std']) / ra_row['Std'] * 100
+    
+    # Add "33% variance reduction" text
+    mid_x = (sas_row['Complexity'] + ra_row['Complexity']) / 2
+    mid_y = (sas_row['Std'] + ra_row['Std']) / 2 - 0.12
+    plt.text(mid_x + 1.5, mid_y, f'{variance_reduction:.0f}% variance\nreduction', 
+             ha='center', va='center', fontsize=11, fontweight='bold', 
+             color='#c0392b', bbox=dict(boxstyle='round,pad=0.3', facecolor='#fadbd8', edgecolor='#e74c3c'))
+    # === END NEW ===
+
     plt.title('The Complexity Gap: Accuracy-Stability Balance', fontsize=14, fontweight='bold')
     plt.ylabel('Instability (Standard Deviation $ \\sigma $) $\\downarrow$', fontsize=12)
     plt.xlabel('Algorithmic Complexity (Operations) $\\rightarrow$', fontsize=12)
     
-    plt.xticks([1, 2, 8], ['Baseline', 'Single-Op (Ours)', 'Multi-Op (RandAug)'])
+    plt.xticks([1, 4, 8], ['Baseline', 'SAS (Ours)', 'RandAugment'])  # Spread out labels
     plt.ylim(0.5, 1.5)
     plt.xlim(0, 10)
     plt.grid(True, linestyle='--', alpha=0.5)

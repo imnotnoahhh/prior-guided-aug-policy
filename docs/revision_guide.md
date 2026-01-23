@@ -9,455 +9,68 @@
 
 ---
 
-## 📋 修改优先级总览
+## 📋 修改优先级总览 (重新排序版)
 
-| 优先级 | 阶段 | 内容 | 建议完成时间 |
-|--------|------|------|--------------|
-| 🔴 P0 | 生死线 | 双盲匿名化 + 格式合规 + **评估协议修正** | 立即完成 |
-| 🔴 P0.5 | 红旗问题 | **RandAugment 35.30%自证 + 方法量化定义** | Day 1-2 |
-| 🟠 P1 | 核心实验 | Shot sweep + 表格升级 + **Seed方差** | Day 3-6 |
-| 🟡 P2 | 说服力增强 | 换Backbone + 可视化 + 效率 + **统计检验** | Day 7-9 |
-| 🟢 P3 | 方法论防御 | 搜索消融 + **算子列表** + **目标函数** | Day 10-11 |
-| 🔵 P4 | 写作精修 | Abstract/Intro/**贡献点**/相关工作 | Day 12 |
-| ⚪ P5 | 提交检查 | PDF合规 + 最终校对 | Day 13 |
+| 优先级 | 阶段 | 内容 | 是否需要实验 | 建议时间 |
+|--------|------|------|--------------|----------|
+| ✅ P0 | 已完成 | 匿名化 + 红旗问题文字说明 | ❌ | 已完成 |
+| 🔴 P1 | 写作任务 | Abstract/Intro/贡献点/SAS命名/伪代码 | ❌ | Day 1-2 |
+| 🟠 P2 | 数据分析 | 表格升级 + 统计检验 (现有数据) | ❌ | Day 2-3 |
+| 🟡 P3 | 核心实验 | Shot Sweep + 搜索消融 | ✅ 必做 | Day 4-7 |
+| 🟢 P4 | 增强实验 | 换Backbone + Seed方差 + 语义指标 | ✅ 建议 | Day 8-10 |
+| 🔵 P5 | 可选实验 | 可视化 + 效率 + ViT + 真实数据集 | ✅ 可选 | Day 11-12 |
+| ⚪ P6 | 提交检查 | PDF合规 + 最终校对 | ❌ | Day 13 |
 
 ---
 
-## 🔴 P0: 生死线 (立即执行)
+## ✅ P0: 已完成项 (确认状态)
 
-### 1. 双盲匿名化 (ICIP 2026 强制要求)
+### 1. 双盲匿名化 ✅
 
-根据 [ICIP 2026 Author Kit](https://2026.ieeeicip.org/author-kit/)，论文采用 **Double-Blind Review**，需提交两个版本：
-
-#### 匿名版 (用于审稿)
-
-| 检查项 | 状态 | 说明 |
-|--------|------|------|
-| **删除作者信息** | ✅ 已完成 | `main.tex` Line 24-25 已为匿名占位符 |
-| **删除 GitHub 链接** | ✅ 已完成 | `main.tex` Line 227 已改为 "Code will be made publicly available upon acceptance." |
-| **删除致谢/资助号** | ✅ 无需处理 | 论文中无 Acknowledgements 部分 |
-| **自引处理** | ✅ 已完成 | `references.bib` 中无自引 (共6篇引用均为他人论文) |
-| **清理 PDF 元数据** | ✅ 已完成 | `main.tex` 已添加 hyperref 包，元数据将为空 |
-
-#### 自引检查 ✅
-- [x] 检查 `references.bib` 中是否有自己的论文 → **无自引** (共6篇: CIFAR, ResNet, Cutout, AutoAugment, RandAugment, ASHA)
-- [x] 确保引用方式为第三人称 → **已确认无问题**
-
-#### PDF 元数据清理 ✅
-已在 `main.tex` 中添加：
-```latex
-\usepackage[pdfauthor={},pdftitle={},pdfsubject={},pdfkeywords={}]{hyperref}
-```
-
-编译后可用以下命令验证元数据已清空：
-```bash
-exiftool your_paper.pdf
-# Author 字段应为空
-```
-
-#### 发布版 (用于录用后出版)
-- [ ] 与匿名版内容完全一致，仅添加作者信息
+| 检查项 | 状态 |
+|--------|------|
+| 删除作者信息 | ✅ `main.tex` Line 24-25 已为匿名占位符 |
+| 删除 GitHub 链接 | ✅ 已改为 "Code will be made publicly available upon acceptance." |
+| 自引处理 | ✅ `references.bib` 中无自引 |
+| PDF 元数据清理 | ✅ 已添加 `hyperref` 包 |
 
 ### 2. 复现性底线 ✅
 
-**训练配置已完整包含于论文中**:
+训练配置已完整包含于论文中 (5-fold CV, 200 epochs, SGD, etc.)
 
-| 配置项 | 位置 | 状态 |
-|--------|------|------|
-| 5-fold CV, 90/10 split | Section 4.1 | ✅ |
-| Epochs (200) | Section 4.1 + Appendix A | ✅ |
-| Batch size (128) | Section 4.1 + Appendix A | ✅ |
-| SGD, momentum 0.9 | Section 4.1 + Appendix A | ✅ |
-| Weight Decay (1e-2) | Section 4.1 + Appendix A | ✅ |
-| Learning Rate (0.1, Cosine Annealing, 5 warmup) | Appendix A | ✅ |
-| Label Smoothing (0.1) | Appendix A | ✅ |
-| Seeds [42, 100, 2024, 7, 99] | Appendix B | ✅ |
+### 3. 红旗问题 (文字部分) ✅
 
-- [x] **保存实验日志**: 确保所有实验的配置文件和日志完整保存
-
-### 5. 🆕 评估协议可信度 (来自意见2) ✅
-
-> ⚠️ **审稿人质疑**: 搜索过程是否对同一验证划分发生了选择偏差？
-
-**当前问题**: 
-- 用验证集选择最佳策略 → 又在同一验证集上报告结果 = **选择偏差**
-
-**已完成的处理**:
-- [x] 在论文 Limitations 部分添加了评估协议说明
-- [x] 强调核心论点是**相对稳定性** (方差比较)，而非绝对准确率
-- [x] 说明了缓解措施：5-fold CV + 多 seed
-
-**已添加到 `main.tex` 的段落**:
-```latex
-\textbf{Evaluation Protocol.} We acknowledge a potential limitation: 
-the same validation folds used for policy selection (Phase A/B/C) are 
-also used for final reporting. To mitigate selection bias, we (1) use 
-5-fold cross-validation to reduce single-split variance, and (2) report 
-results across multiple random seeds. Importantly, our core claim concerns 
-\textit{relative stability} (variance comparison) rather than absolute 
-accuracy, which is less susceptible to selection bias. Future work should 
-adopt a nested cross-validation protocol where inner folds are used for 
-search and outer folds for evaluation.
-```
+| 问题 | 状态 |
+|------|------|
+| RandAugment 35.30% 异常 | ✅ 已在论文中说明搜索细节和过拟合原因 |
+| K=8 算子列表 + 参数映射 | ✅ 已在 Section 3.1 和 Appendix A 添加 |
+| 目标函数 α=1.0 定义 | ✅ 已在 Phase C 添加公式 |
+| 复杂度 C 定义 | ✅ 已在 Section 3.1 添加 |
+| CIFAR-10 50% 零方差 | ✅ 论文已有 3-seed 验证说明 |
+| 评估协议选择偏差 | ✅ 已在 Limitations 添加说明 |
 
 ---
 
-## 🔴 P0.5: 红旗问题 (Day 1-2 必须解决)
+## 🔴 P1: 写作任务 (不需要实验) - Day 1-2
 
-> ⚠️ **这两个问题如果解释不清，整篇文章的比较都会被否定！**
+> 💡 **这些任务可以立即开始，不依赖任何实验结果**
 
-### 1. 🚨 RandAugment 35.30% 异常结果自证 ✅ (文字部分)
+### 1.1 方法命名 SAS ✅
 
-**问题**: Tuned RandAugment (35.30%) 远低于 Default (42.24%)，这在常识上**非常反常**。
-
-**已完成的处理**:
-- [x] 在论文中补充了搜索细节（10 trials, 40 epochs 筛选, 200 epochs 验证）
-- [x] 说明使用 `torchvision.transforms.RandAugment` 官方实现
-- [x] 解释了验证集过拟合和归纳偏置丢失的原因
-
-**已添加到 `main.tex` 的内容**:
-```latex
-We sampled 10 random configurations, trained each for 40 epochs on Fold 0 
-for quick screening, then fully trained the best configuration (N=1, M=2) 
-for 200 epochs. This achieved only 35.30\% validation accuracy. We use the 
-official \texttt{torchvision.transforms.RandAugment} implementation with 
-identical operation pool to ensure fair comparison.
-```
-
-**可选加强** (见文档末尾"可选实验"部分): 局部扫描曲线实验
-
-### 2. 🆕 方法量化定义 (来自意见2) ✅
-
-**已完成的处理**:
-
-#### 2.1 K=8 算子完整列表 ✅
-- [x] 在 Section 3.1 中列出了所有8个算子名称
-- [x] 在 Appendix A 中添加了 Table (Operation Parameter Mapping)，包含每个算子的参数映射
-
-#### 2.2 目标函数显式定义 ✅
-- [x] 在 Phase C 描述中添加了选择准则公式: `Acc_trial > Acc_best + α × σ_trial`
-- [x] 明确说明 α = 1.0，等价于最大化下界 (Mean - Std)
-
-#### 2.3 复杂度 C 公式 ✅
-- [x] 在 Section 3.1 中添加了复杂度定义: `C = Σp_i`
-- [x] 说明了 RandAugment 的 C=N 和 Single-Op 的 C≤1
-
-### 3. 🆕 CIFAR-10 50% 零方差解释 (来自意见2) ✅
-
-**问题**: RandAugment 与 Single-Op 都达到 50.00% 且折间方差为 0，非常反直觉。
-
-**已验证**:
-- [x] 代码检查：无数据泄漏，StratifiedKFold 正确划分
-- [x] 多 Seed 验证：3 个 seed [42, 100, 2024] 都得到 50.0% (见 `stability_seeds_results.csv`)
-- [x] 论文已有解释：Appendix 中详细说明了饱和效应和 3-seed 验证
-
-**论文现有解释** (Appendix, Line 307):
-> "The zero variance is due to performance saturation... we further verified this experiment across 3 different random initialization seeds (42, 100, 2024). In all cases, both methods converged to exactly 50.00%, confirming that zero variance is a reproducible saturation effect..."
-
-**结论**: 解释已充分，无需额外处理。
-
----
-
-## 🟠 P1: 核心实验 (Day 3-6)
-
-**目标**: 把"100-shot单点实验"升级为"趋势规律"
-
-### 实验 A: Shot Sweep (最重要)
-
-**设置**:
-- 数据集: CIFAR-100
-- Shot数: `[10, 20, 50, 100, 200]` samples/class (增加10-shot，展示拐点)
-- 模型: ResNet-18 (训练配置完全一致)
-- 方法: Baseline, RandAugment, Single-Op (Ours)
-- 评估: 5-fold 交叉验证
-
-**输出物** (三条曲线):
-1. **Accuracy vs Shot**: 展示随样本减少，各方法性能变化
-2. **Fold Std vs Shot**: 展示方差随样本减少的变化趋势
-3. **Lower Bound (Mean - Std) vs Shot**: 展示"最坏情况"性能
-
-**预期故事**: 
-> 展示"复杂度与方差的拐点"如何随样本数移动。随着样本减少，RandAugment的方差剧烈增大，而Single-Op保持稳定。
-
-**图表建议**:
-```
-- X轴: Samples per class (10, 20, 50, 100, 200)
-- Y轴: Validation Accuracy (%)
-- 使用 shadow area 展示方差范围
-- 在图注中标注关键数值差异
-- 标注"拐点"位置
-```
-
-### 🆕 实验 A.2: Seed 方差报告 (来自意见2)
-
-**问题**: 当前只报告 Fold 方差，缺少 Seed 方差
-
-**设置**:
-- 在 CIFAR-100 100-shot 主实验上
-- 同一 Fold，使用 5 个不同随机种子
-- 报告 Seed 方差
-
-**输出物**: 补充到 Table 1 或新建小表
-
-| Method | Fold Std | Seed Std | Total Variance |
-|--------|----------|----------|----------------|
-| Baseline | 1.01 | - | - |
-| RandAugment | 1.17 | - | - |
-| Single-Op | 0.78 | - | - |
-
-### 表1升级
-
-在现有 Table 1 增加列：
-
-| Policy | Val Acc (CV) % | Std Dev | **Min Acc** | **Lower Bound** | **95% CI** | Complexity |
-|--------|----------------|---------|-------------|-----------------|------------|------------|
-| Baseline (S0) | 39.90 | 1.01 | **待补充** | **待补充** | **待补充** | Low |
-| RandAugment | 42.24 | 1.17 | **待补充** | **待补充** | **待补充** | High (N=2) |
-| **Single-Op (SAS)** | 40.74 | 0.78 | **待补充** | **待补充** | **待补充** | Low (Single) |
-
-- **Min Acc**: 5个folds中的最低分
-- **Lower Bound**: Mean - Std (衡量"最坏情况"的安全边界)
-- **95% CI**: 置信区间 (Mean ± 1.96 × Std/√5)
-- **加粗逻辑**: 如果 Single-Op 的 Lower Bound 超过 RandAugment，则加粗
-
-**表注补充**: 
-> "Std Dev denotes the standard deviation of validation accuracy across 5 independent folds (fold variance). 95% CI is computed as Mean ± 1.96 × SE."
-
----
-
-## 🟡 P2: 说服力增强 (Day 7-9)
-
-### 实验 B: 更换 Backbone
-
-**设置**:
-- 数据: CIFAR-100, 100-shot
-- 模型: ResNet-34 或 WideResNet-28-10 或 **小型 ViT** (选1-2个)
-- 其他配置: 与主实验一致
-
-**输出物**: 一张对比表
-
-| Backbone | Method | Mean Acc (%) | Std Dev | Lower Bound |
-|----------|--------|--------------|---------|-------------|
-| ResNet-18 | Baseline | 39.90 | 1.01 | 38.89 |
-| ResNet-18 | RandAugment | 42.24 | 1.17 | 41.07 |
-| ResNet-18 | Single-Op (SAS) | 40.74 | 0.78 | 39.96 |
-| WRN-28-10 | Baseline | - | - | - |
-| WRN-28-10 | RandAugment | - | - | - |
-| WRN-28-10 | Single-Op (SAS) | - | - | - |
-
-**预期故事**: 
-> "稳定性优先的选择在 CNN 与 ViT 上是否一致？我们的发现不仅限于ResNet-18。"
-
-### 实验 C: Failure Cases 可视化
-
-**协议 (固定，避免被质疑挑图)**:
-1. 从验证集**随机**抽取 N=10 张图片 (使用固定seed=42)
-2. 对每张图展示:
-   - 原图
-   - RandAugment 处理后 (1-2次采样)
-   - Single-Op 处理后
-3. 标注:
-   - 模型预测结果 (RandAugment: ❌/✅, Ours: ❌/✅)
-   - 预测置信度
-   - SSIM 和/或 LPIPS 数值
-
-**输出物**: 一张或两张拼图 (选3-5张最有代表性的放正文)
-
-**图注示例**:
-> "Randomly sampled validation images (seed=42) with augmentation results. RandAugment often introduces semantic distortion (Row 2-3), leading to misclassification, while Single-Op preserves semantic content."
-
-### 🆕 实验 C.2: 语义保持硬指标 (来自意见2)
-
-**问题**: SSIM/LPIPS 受几何错位影响，不够"硬"
-
-**补充指标** (选1-2个):
-1. **预测标签一致率**: 增强前后，在预训练模型上的预测标签是否一致
-2. **特征空间类内距离**: 增强前后，特征向量的余弦相似度
-
-**实验设置**:
-```python
-# 使用不参与训练的预训练模型 (如 ImageNet 预训练的 ResNet-50)
-pretrained_model = torchvision.models.resnet50(pretrained=True)
-
-for img in validation_set:
-    pred_original = pretrained_model(img)
-    pred_augmented = pretrained_model(augment(img))
-    consistency = (pred_original.argmax() == pred_augmented.argmax())
-```
-
-**输出物**: 新增一行到 Table (Destructiveness Metrics)
-
-| Method | SSIM ↑ | LPIPS ↓ | **Label Consistency ↑** |
-|--------|--------|---------|-------------------------|
-| Baseline | 0.198 | 0.084 | - |
-| RandAugment | 0.147 | 0.124 | - |
-| Single-Op (SAS) | 0.196 | 0.091 | - |
-
-### 实验 D: 训练效率对比
-
-**指标** (选一):
-- Images per second
-- Time per epoch (seconds)
-- Epochs to reach X% validation accuracy
-
-**控制变量**:
-- 同一GPU (NVIDIA A10)
-- 同一batch size (128)
-- 同一数据加载配置
-
-**输出物**: 小表格或柱状图
-
-| Method | Time/Epoch (s) | Throughput (img/s) | Speedup |
-|--------|----------------|--------------------| --------|
-| Baseline | - | - | 1.0× |
-| RandAugment (N=2) | - | - | - |
-| Single-Op (SAS) | - | - | - |
-
-**正文添加一句话**:
-> "Our method improves training throughput by X% compared to RandAugment (N=2) due to reduced augmentation overhead."
-
-### 🆕 实验 E: 统计显著性检验 (来自意见1)
-
-**问题**: 缺少统计检验，结论可信度不足
-
-**需要补充**:
-- [ ] t-test 或 Wilcoxon signed-rank test
-- [ ] p-value 报告
-- [ ] 置信区间
-
-**示例**:
-```latex
-We performed paired t-tests comparing Single-Op (SAS) against RandAugment 
-across 5 folds. While RandAugment achieves higher mean accuracy 
-($p = 0.XX$, not significant at $\alpha = 0.05$), Single-Op exhibits 
-significantly lower variance (Levene's test, $p < 0.05$).
-```
-
----
-
-## 🟢 P3: 方法论防御 (Day 10-11)
-
-### 实验 F: 搜索流程消融
-
-**目的**: 防守"你只是运气选到了ColorJitter"的质疑
-
-**三个版本对比**:
-1. **Phase A only**: 仅Sobol筛选，选最佳单点
-2. **Phase A + B**: 筛选 + ASHA调优
-3. **Full Method (SAS)**: 筛选 + 调优 + Phase C稳定性约束
-
-**输出物**: 一张表或一张图
-
-| Method | Mean Acc (%) | Std Dev | Lower Bound | Selected Op |
-|--------|--------------|---------|-------------|-------------|
-| Phase A only | - | - | - | - |
-| Phase A + B | - | - | - | - |
-| Full SAS (A+B+C) | 40.74 | 0.78 | 39.96 | ColorJitter |
-
-### 🆕 补充伪代码/算法框图 (来自意见1)
-
-**问题**: 当前仅有文字描述，可读性不足
-
-**建议**: 将 Algorithm 1 扩展为完整的三阶段算法
-
-```latex
-\begin{algorithm}[htbp]
-\caption{SAS: Stability-aware Augmentation Search}
-\label{alg:sas}
-\begin{algorithmic}[1]
-\Require Candidate Ops $\mathcal{O} = \{o_1, ..., o_K\}$, Stability threshold $\tau$, Trade-off $\lambda$
-\Ensure Optimal policy $\pi^*$
-
-\State \textbf{Phase A: Screening}
-\For{$o \in \mathcal{O}$}
-    \State Sample $(m, p)$ pairs using Sobol sequence
-    \State $\sigma_o \leftarrow$ Evaluate fold variance with quick training
-    \If{$\sigma_o > \tau$}
-        \State Discard $o$ \Comment{Unstable operation}
-    \EndIf
-\EndFor
-
-\State \textbf{Phase B: Tuning}
-\For{$o \in \mathcal{O}_{stable}$}
-    \State $(m^*, p^*) \leftarrow$ ASHA scheduler fine-tuning
-\EndFor
-
-\State \textbf{Phase C: Composition with Stability Constraint}
-\State $\pi^* \leftarrow \arg\max_{\pi} \left[ \text{mean}(\text{Acc}_\pi) - \lambda \cdot \text{std}(\text{Acc}_\pi) \right]$
-
-\State \Return $\pi^*$
-\end{algorithmic}
-\end{algorithm}
-```
-
-### RandAugment 调参说明 (升级版)
-
-当前论文提到 Tuned RandAugment 仅达到 35.30%，需要详细解释 + **局部扫描曲线**：
-
-**补充段落** (放在 Section 4.3 或 Appendix):
-
-```latex
-\textbf{RandAugment Hyperparameter Search Details.}
-To address the concern that RandAugment might outperform if properly tuned, 
-we performed a random search with the following protocol:
-
-\begin{itemize}
-    \item \textbf{Search Space:} $N \in \{1, 2, 3\}$, $M \in \{1, 2, ..., 14\}$ (42 configurations)
-    \item \textbf{Search Budget:} 50 random configurations
-    \item \textbf{Training:} 200 epochs per configuration (same as main experiments)
-    \item \textbf{Validation:} Same 5-fold CV protocol
-    \item \textbf{Selection Criterion:} Best mean validation accuracy
-    \item \textbf{Seed:} Fixed seed=42 for reproducibility
-    \item \textbf{Implementation:} \texttt{torchvision.transforms.RandAugment} v0.15.0
-\end{itemize}
-
-The best configuration found was $N=1, M=2$, achieving 35.30\% validation 
-accuracy. To verify this is not an artifact, we performed a local grid search 
-around the default parameters (Figure X): fixing $N=2$ and sweeping 
-$M \in [1, 14]$, and fixing $M=9$ and sweeping $N \in [1, 3]$. 
-The results confirm that naive hyperparameter search leads to validation 
-overfitting in small-sample regimes.
-
-\textbf{Why does tuning fail?} Two reasons:
-\begin{enumerate}
-    \item \textbf{Validation Overfitting:} With only 1,000 validation samples 
-    (10\% of 10,000), the search algorithm exploits noise in the small 
-    validation set, selecting configurations that fail to generalize.
-    \item \textbf{Loss of Inductive Bias:} Default RandAugment parameters 
-    ($N=2, M=9$) encode strong priors derived from ImageNet-scale training. 
-    Searching from scratch discards this valuable inductive bias.
-\end{enumerate}
-
-Our SAS protocol addresses this by explicitly penalizing high-variance 
-configurations (Eq. X), preventing overfitting to validation noise.
-```
-
----
-
-## 🔵 P4: 写作精修 (Day 12)
-
-### 🆕 方法命名 (来自意见1)
-
-**建议**: 给方法起一个正式名字，便于记忆和引用
+**任务**: 给方法起正式名字，全文统一使用
 
 **名称**: **SAS** (Stability-aware Augmentation Search)
 
-**在摘要和引言中使用**:
-> "We propose SAS (Stability-aware Augmentation Search), a three-phase protocol that explicitly penalizes variance..."
+**已完成修改**:
+- [x] Abstract: "We propose **SAS** (Stability-aware Augmentation Search)..."
+- [x] Introduction: "we propose \textbf{SAS}..."
+- [x] 全文替换 "Single-Op" / "single-operation policy" → "SAS"
+- [x] 表格 Table 1 和 CIFAR-10 表格
 
-### 🆕 标题修改建议 (来自意见1)
+### 1.2 Abstract 重写 ✅
 
-**当前标题**: When More is Not Better: Rethinking Data Augmentation under Small-Sample Regimes
+**已更新** (`main.tex` Line 34-36):
 
-**建议新标题**: 
-- **Stability over Complexity: Rethinking Data Augmentation for Small-Sample Learning**
-- 或: **Less is More Reliable: Stability-aware Data Augmentation for Small-Sample Regimes**
-
-### Abstract 重写
-
-**当前问题**: 开头不够强势，未提及方法名称
-
-**建议重写**:
 ```latex
 \begin{abstract}
 Complex data augmentation strategies introduce significant training variance 
@@ -470,111 +83,323 @@ mean accuracy (+1.5\%), it incurs 50\% higher fold variance.
 We propose \textbf{SAS} (Stability-aware Augmentation Search), a three-phase 
 protocol that explicitly penalizes variance. SAS identifies a single, 
 well-tuned operation (ColorJitter) that achieves competitive performance 
-(40.74\% vs. 42.24\%) while reducing variance by 33\%. 
-Through shot-sweep experiments across [10-200] samples/class and 
-semantic preservation analysis, we demonstrate that in data-scarce scenarios, 
-\textbf{stability should take precedence over complexity}.
+(40.74\% vs.\ 42.24\%) while reducing variance by 33\%. 
+Through systematic evaluation across multiple folds and seeds, we demonstrate 
+that in data-scarce scenarios, \textbf{stability should take precedence over complexity}.
 \end{abstract}
 ```
 
-### Introduction 末尾三条贡献 (来自意见1&2)
+### 1.3 Introduction 三条贡献 ✅
 
-**当前问题**: 缺少明确的贡献列表
+**已添加** (在 Section 1 末尾，`main.tex` Line 64-70):
 
-**建议添加** (在 Section 1 末尾):
 ```latex
 Our contributions are threefold:
 \begin{itemize}
     \item \textbf{Empirical Insight:} We reveal a stability-accuracy trade-off 
     in small-sample augmentation, showing that complex policies introduce 
     high variance that offsets their marginal accuracy gains (Section 4).
-    
     \item \textbf{Methodology:} We propose SAS (Stability-aware Augmentation Search), 
     a three-phase protocol that explicitly penalizes variance using a 
     lower-bound criterion (Mean $-$ Std) for robust policy selection (Section 3).
-    
-    \item \textbf{Validation:} Through shot-sweep experiments across 
-    [10, 20, 50, 100, 200] samples/class, multi-backbone evaluation, 
-    and semantic preservation analysis (SSIM/LPIPS/Label Consistency), 
-    we provide systematic evidence that single-operation policies offer 
-    the best reliability in data-scarce regimes (Section 4, Appendix).
+    \item \textbf{Validation:} Through 5-fold cross-validation, multi-seed evaluation, 
+    and semantic preservation analysis (SSIM/LPIPS), we provide systematic evidence 
+    that single-operation policies offer the best reliability in data-scarce regimes 
+    (Section 4, Appendix).
 \end{itemize}
 ```
 
-### 🆕 Introduction 结构建议 (来自意见1)
+> 📝 **注**: 原建议中的 "shot-sweep experiments" 和 "multi-backbone evaluation" 已简化为当前实验状态。如完成 Shot Sweep 实验后可更新。
 
-**建议采用四段式结构**:
-1. **问题**: 小样本场景下复杂增强失效
-2. **现有方法不足**: AutoAugment/RandAugment 在大数据上设计，忽略稳定性
-3. **本文方法**: SAS 三阶段协议，稳定性优先
-4. **贡献**: 三条明确贡献
+### 1.4 完善伪代码/算法框图 ✅
 
-### 相关工作补充 (来自意见1)
+**已完成**: 将 Algorithm 1 从 "Greedy Selection (Phase C only)" 升级为完整的三阶段 SAS 算法
 
-**当前问题**: 缺少2024-2025年最新文献，与 AutoAugment/RandAugment/Fast AutoAugment 的区分不够
+**更新内容** (`main.tex` Line 114-139):
+- 算法标题改为 "SAS: Stability-aware Augmentation Search"
+- 包含完整的 Phase A (Screening) / Phase B (Tuning) / Phase C (Composition)
+- 明确展示 $\alpha$ 方差惩罚准则
+- 注释说明 "Typically converges to single operation"
 
-**建议补充**:
+**引用更新**:
+- Section 3.2 中的 `Procedure \ref{alg:phase_c}` → `Algorithm \ref{alg:sas}, Lines 17-23`
 
-1. **与现有方法的本质区别**:
-```latex
-Unlike AutoAugment \cite{cubuk2019autoaugment} and RandAugment \cite{cubuk2020randaugment}, 
-which optimize for accuracy on large-scale datasets, our SAS protocol 
-explicitly incorporates variance as a first-class optimization objective. 
-This is crucial in small-sample regimes where validation noise is high 
-and stability is paramount.
+### 1.5 相关工作补充
+
+**补充内容**:
+1. **与 AutoAugment/RandAugment 的本质区别**
+2. **Data-Efficient Learning (2024-2025)** 最新文献
+3. **Augmentation Stability** 相关研究
+
+### 1.6 Limitations 与 Future Work 扩展 ✅
+
+**已完成** (`main.tex` Line 202-213):
+
+- 将原 `\section{Limitations}` 改为 `\section{Limitations and Future Work}`
+- 整合评估协议说明到 Limitations 段落
+- 新增 Future Work 三条方向:
+  1. Vision Transformers + self-supervised learning
+  2. 真实世界小样本领域 (医学影像、卫星图像)
+  3. 嵌套交叉验证协议
+
+### 1.7 全文一致性检查 ✅
+
+- [x] **术语统一**: 已将 `low-shot`, `low-data` → `small-sample` (3处)
+- [x] **方法名称统一**: 已完成 "Single-Op" → "SAS" (W1)
+- [x] **Std 含义统一**: Line 178 已明确 "Fold Variance (sensitivity to data splits)"
+- [x] **图表编号与引用**: 已检查，6处引用全部匹配对应 label
+- [ ] **图例字体**: 需手动检查 PNG 文件 (编译后确认 ≥ 9pt)
+
+### 1.8 Figure 1 标注强化 ✅ (代码已更新)
+
+**已修改** `scripts/generate_paper_figures.py` 的 `plot_complexity_tradeoff()` 函数:
+
+- [x] 添加箭头从 RandAugment 指向 SAS
+- [x] 添加 **"33% variance reduction"** 标注框
+- [x] 更新标签 "Single-Op (Ours)" → "SAS (Ours)"
+- [x] 字体已设置 fontsize=10-12 (≥ 9pt)
+
+**运行命令重新生成图片**:
+```bash
+python scripts/generate_paper_figures.py
 ```
 
-2. **Data-Efficient Learning (2024-2025)**:
-   - 最新的few-shot/low-shot学习方法
-   - Data-Centric AI 相关工作
+生成的图片: `outputs/figures/fig1_complexity_gap.png`
 
-3. **Augmentation Stability**:
-   - 增强策略对训练稳定性影响的研究
+### 1.9 标题修改 (可选)
 
-### 全文一致性检查
+**建议新标题**: 
+- **Stability over Complexity: Rethinking Data Augmentation for Small-Sample Learning**
 
-- [ ] **术语统一**: 选择一种主说法
-  - `small-sample` vs `few-shot` vs `low-data` → 建议统一为 `small-sample`
-- [ ] **方法名称统一**: 全文使用 "SAS" 或 "Single-Op"
-- [ ] **复杂度C定义**: 确保首次出现位置清晰 (建议在 Section 3.1)
-- [ ] **Std含义统一**: 明确是 fold variance 还是 seed variance
-- [ ] **图表编号与引用**: 检查所有 `Figure X` 和 `Table X` 引用正确
-- [ ] **图表自明性**: 坐标轴、图例、单位需清晰标注 (审稿人常抱怨图例字太小)
+---
 
-### Figure 1 强化
+## 🟠 P2: 数据分析任务 (基于现有数据) - Day 2-3
 
-**当前问题**: 主卖点不够突出
+> 💡 **这些任务不需要跑新实验，只需分析现有数据**
 
-**建议修改**:
-- 在图上标注 **"33% variance reduction"** 或 **"Lower Bound: 39.96 vs 41.07"**
-- 使用箭头或标注框突出关键差异
-- 确保图例字体 ≥ 9pt
+### 2.1 Table 1 升级
 
-### 🆕 Limitations 与 Future Work (来自意见1)
+从现有 5-fold 结果中提取额外指标：
 
-**当前**: 只有 Limitations，无 Future Work
+| Policy | Val Acc % | Std Dev | **Min Acc** | **Lower Bound** | **95% CI** |
+|--------|-----------|---------|-------------|-----------------|------------|
+| Baseline | 39.90 | 1.01 | **待计算** | 38.89 | **待计算** |
+| RandAugment | 42.24 | 1.17 | **待计算** | 41.07 | **待计算** |
+| SAS | 40.74 | 0.78 | **待计算** | 39.96 | **待计算** |
 
-**建议扩展**:
+**计算公式**:
+- Min Acc: 5 个 fold 中的最低分
+- Lower Bound: Mean - Std
+- 95% CI: Mean ± 1.96 × Std/√5
+
+**数据来源**: `outputs/phase_d_results.csv` 或 `outputs/baseline_result.csv`
+
+### 2.2 统计显著性检验
+
+**任务**: 对现有 5-fold 数据做 t-test 和方差检验
+
+```python
+from scipy import stats
+
+# 假设有 5 个 fold 的准确率
+sas_accs = [...]  # 从 CSV 读取
+ra_accs = [...]
+
+# 均值差异检验
+t_stat, p_value = stats.ttest_rel(sas_accs, ra_accs)
+
+# 方差差异检验 (Levene's test)
+levene_stat, levene_p = stats.levene(sas_accs, ra_accs)
+```
+
+**输出**: 在论文中报告 p-value
+
 ```latex
-\section{Limitations and Future Work}
-
-\textbf{Limitations.} Our study is limited to (1) convolutional architectures 
-(ResNet-18) trained from scratch, (2) CIFAR-100/10 benchmarks, and 
-(3) the specific 100-shot regime. Whether similar conclusions hold for 
-Vision Transformers, which often require stronger regularization, 
-remains to be investigated.
-
-\textbf{Future Work.} We identify three promising directions:
-\begin{itemize}
-    \item Extending SAS to Vision Transformers and self-supervised learning;
-    \item Validating on real-world small-sample domains (medical imaging, satellite imagery);
-    \item Investigating the stability-complexity trade-off in cross-domain few-shot learning.
-\end{itemize}
+We performed paired t-tests comparing SAS against RandAugment 
+across 5 folds. While RandAugment achieves higher mean accuracy 
+($p = 0.XX$), SAS exhibits significantly lower variance 
+(Levene's test, $p < 0.05$).
 ```
 
 ---
 
-## ⚪ P5: 提交检查 (Day 13)
+## 🟡 P3: 核心实验 (必做) - Day 4-7
+
+> ⚠️ **这两个实验对论文增强效果最大，优先完成**
+
+### 3.1 Shot Sweep 实验 ⭐⭐⭐ (最高优先级)
+
+**增强效果**: 极高 - 将单点实验升级为趋势规律，直接支撑核心论点
+
+**设置**:
+- 数据集: CIFAR-100
+- Shot数: `[10, 20, 50, 100, 200]` samples/class
+- 方法: Baseline, RandAugment, SAS
+- 评估: 5-fold CV
+
+**输出物** (3条曲线):
+1. **Accuracy vs Shot**: 各方法性能随样本数变化
+2. **Fold Std vs Shot**: 方差随样本数变化 (核心！)
+3. **Lower Bound vs Shot**: 最坏情况性能
+
+**预期故事**: 
+> 随着样本减少，RandAugment 方差剧增，而 SAS 保持稳定。展示"拐点"位置。
+
+**预计时间**: 2-3 天 (5 shot × 3 方法 × 5 fold × 200 epochs)
+
+### 3.2 搜索流程消融 ⭐⭐ (高优先级)
+
+**增强效果**: 高 - 防守"运气选到 ColorJitter"的质疑，证明方法论必要性
+
+**三个版本对比**:
+1. **Phase A only**: 仅 Sobol 筛选
+2. **Phase A + B**: 筛选 + ASHA 调优
+3. **Full SAS**: 筛选 + 调优 + Phase C 稳定性约束
+
+**输出物**:
+
+| Method | Mean Acc % | Std Dev | Lower Bound | Selected Op |
+|--------|------------|---------|-------------|-------------|
+| Phase A only | - | - | - | - |
+| Phase A + B | - | - | - | - |
+| Full SAS | 40.74 | 0.78 | 39.96 | ColorJitter |
+
+**预计时间**: 1 天 (复用现有代码，只需分阶段跑)
+
+---
+
+## 🟢 P4: 增强实验 (建议做) - Day 8-10
+
+> 💡 **这些实验能进一步增强说服力，按优先级排序**
+
+### 4.1 更换 Backbone ⭐⭐ (高优先级)
+
+**增强效果**: 高 - 证明结论泛化性，不仅限于 ResNet-18
+
+**设置**:
+- 数据: CIFAR-100, 100-shot
+- 模型: ResNet-34 或 WideResNet-28-10 (选1个)
+- 方法: Baseline, RandAugment, SAS
+
+**输出物**:
+
+| Backbone | Method | Mean Acc % | Std Dev | Lower Bound |
+|----------|--------|------------|---------|-------------|
+| ResNet-18 | SAS | 40.74 | 0.78 | 39.96 |
+| WRN-28-10 | SAS | - | - | - |
+
+**预计时间**: 1 天
+
+### 4.2 Seed 方差报告 ⭐ (中高优先级)
+
+**增强效果**: 中高 - 补充 fold 方差之外的另一维度
+
+**设置**:
+- 在 CIFAR-100 100-shot 主实验上
+- 同一 Fold 0，使用 5 个不同随机种子
+- 报告 Seed 方差
+
+**输出物**:
+
+| Method | Fold Std | Seed Std |
+|--------|----------|----------|
+| Baseline | 1.01 | - |
+| RandAugment | 1.17 | - |
+| SAS | 0.78 | - |
+
+**预计时间**: 半天
+
+### 4.3 语义保持硬指标 (Label Consistency) ⭐ (中优先级)
+
+**增强效果**: 中 - 补充 SSIM/LPIPS 之外更"硬"的指标
+
+**设置**:
+```python
+# 使用 ImageNet 预训练的 ResNet-50
+pretrained_model = torchvision.models.resnet50(pretrained=True)
+
+for img in validation_set:
+    pred_original = pretrained_model(img)
+    pred_augmented = pretrained_model(augment(img))
+    consistency = (pred_original.argmax() == pred_augmented.argmax())
+```
+
+**输出物**:
+
+| Method | SSIM ↑ | LPIPS ↓ | Label Consistency ↑ |
+|--------|--------|---------|---------------------|
+| Baseline | 0.198 | 0.084 | - |
+| RandAugment | 0.147 | 0.124 | - |
+| SAS | 0.196 | 0.091 | - |
+
+**预计时间**: 2-3 小时
+
+---
+
+## 🔵 P5: 可选实验 (时间充裕时) - Day 11-12
+
+> 📝 **按增强效果排序，优先考虑前几个**
+
+### 5.1 Failure Cases 可视化 (中优先级)
+
+**增强效果**: 中 - 直观展示问题，工作量小
+
+**协议**:
+1. 从验证集随机抽取 N=10 张图片 (seed=42)
+2. 展示: 原图 / RandAugment 处理后 / SAS 处理后
+3. 标注: 预测结果、置信度、SSIM
+
+**预计时间**: 2-3 小时
+
+### 5.2 训练效率对比 (低优先级)
+
+**增强效果**: 低 - 非核心论点
+
+**指标**: Time/Epoch, Throughput (img/s)
+
+**预计时间**: 1 小时
+
+### 5.3 RandAugment 局部扫描曲线 (低优先级)
+
+**增强效果**: 低 - 已有文字说明，曲线是锦上添花
+
+**设计**:
+- 实验1: 固定 N=2，扫描 M = [1, 2, ..., 14]
+- 实验2: 固定 M=9，扫描 N = [1, 2, 3]
+
+**预计时间**: 2-3 小时
+
+### 5.4 嵌套式交叉验证 (低优先级)
+
+**增强效果**: 中 - 但已有文字说明，工作量大
+
+**设计**:
+```
+外层: 5-fold 仅用于最终报告
+  └── 内层: 每个外层训练折内部再划分
+```
+
+**预计时间**: 1-2 天
+
+### 5.5 ViT 实验 (低优先级)
+
+**增强效果**: 中 - 可放 Future Work
+
+**设置**: 小型 ViT (如 ViT-Tiny) 在 CIFAR-100 100-shot
+
+**预计时间**: 1 天
+
+### 5.6 真实数据集 (最低优先级)
+
+**增强效果**: 高 - 但工作量极大
+
+**建议**: 
+- 时间不足时，在 Future Work 中明确提及
+- "Validating on real-world domains (medical imaging, satellite imagery)"
+
+---
+
+## ⚪ P6: 提交检查 - Day 13
 
 ### 格式合规检查 (ICIP 2026 硬性要求)
 
@@ -641,6 +466,31 @@ remains to be investigated.
 - [ ] 图表引用正确性
 - [ ] 方法名称 SAS 是否一致使用
 
+### 图片数据验证
+
+> ⚠️ **重要**: 确保所有图片中的数据与实验结果一致
+
+**验证清单**:
+
+| 图片 | 验证内容 | 状态 |
+|------|----------|------|
+| fig1_complexity_gap.png | Baseline/SAS/RandAugment 的 Acc 和 σ 值是否匹配 `phase_d_summary.csv` | [ ] |
+| fig4_search_space_colorjitter.png | 红圈标记的 Optimal 点是否是 ColorJitter 最高 val_acc | [ ] |
+| fig5_stability_boxplot.png | 5 个 fold 的黑点 Y 值是否匹配 `phase_d_results.csv` | [ ] |
+| fig6_cifar10_generalization.png | Mean/Std 是否匹配 `cifar10_50shot_results.csv` | [ ] |
+| fig7_ablation_magnitude.png | 曲线数据是否匹配 `ablation_p0.5_summary.csv` | [ ] |
+| fig8_destructiveness.png | SSIM/LPIPS 值是否匹配 `destructiveness_metrics.csv` | [ ] |
+
+**验证命令**:
+```bash
+# 重新生成所有图片
+python scripts/generate_paper_figures.py
+
+# 对比数据文件
+cat outputs/phase_d_summary.csv
+cat outputs/cifar10_50shot_results.csv
+```
+
 ---
 
 ## 📝 补充说明
@@ -699,22 +549,20 @@ ICIP 2026 允许提交匿名的补充材料，建议包含：
 
 ---
 
-## 📅 时间线建议 (更新版)
+## 📅 时间线建议 (重新排序版)
 
-| 日期 | 任务 | 产出物 |
-|------|------|--------|
-| **Day 1** | P0: 匿名化 + 格式检查 | 合规的双盲版 PDF |
-| **Day 1-2** | P0.5: RandAugment局部扫描 + 方法量化定义 | 曲线图 + 公式 + 算子表 |
-| **Day 3-4** | P1: Shot sweep 实验 | 3条曲线 + 数据 |
-| **Day 5** | P1: Seed方差实验 | 补充表格 |
-| **Day 6** | P1: 表格升级 + 整合 | 更新的 Table 1 |
-| **Day 7** | P2: 换 Backbone 实验 | 对比表 |
-| **Day 8** | P2: Failure cases + 语义指标 | 拼图 + Label Consistency |
-| **Day 9** | P2: 效率对比 + 统计检验 | 小表格 + p-value |
-| **Day 10** | P3: 搜索消融实验 | 消融表 |
-| **Day 11** | P3: 完善伪代码 + CIFAR-10解释 | 算法框图 |
-| **Day 12** | P4: Abstract/Intro/相关工作/SAS命名 | 更新的论文 |
-| **Day 13** | P5: PDF eXpress + 最终检查 | 最终提交版 |
+| 日期 | 阶段 | 任务 | 是否实验 | 产出物 |
+|------|------|------|----------|--------|
+| **Day 1** | P1 写作 | SAS命名 + Abstract重写 + 贡献点 | ❌ | 更新的论文 |
+| **Day 2** | P1 写作 | 伪代码 + 相关工作 + Future Work | ❌ | 更新的论文 |
+| **Day 2-3** | P2 分析 | Table 1 升级 + 统计检验 | ❌ | 表格 + p-value |
+| **Day 4-5** | P3 核心 | Shot Sweep 实验 | ✅ | 3条曲线 |
+| **Day 6-7** | P3 核心 | 搜索消融实验 | ✅ | 消融表 |
+| **Day 8** | P4 增强 | 换 Backbone (WRN-28-10) | ✅ | 对比表 |
+| **Day 9** | P4 增强 | Seed 方差 + 语义指标 | ✅ | 补充表格 |
+| **Day 10-11** | P5 可选 | 可视化 / 效率 / 其他 | ✅ | 按需 |
+| **Day 12** | 整合 | 全文一致性检查 + Figure 强化 | ❌ | 最终论文 |
+| **Day 13** | P6 提交 | PDF eXpress + 最终校对 | ❌ | 提交版 PDF |
 
 ---
 
@@ -778,47 +626,78 @@ ICIP 2026 允许提交匿名的补充材料，建议包含：
 
 ---
 
-## 📊 修改清单汇总
+## 📊 修改清单汇总 (重新排序版)
 
-### 必做 (Must-Have)
+### ✅ 已完成
 
-| 编号 | 任务 | 来源 | 状态 |
-|------|------|------|------|
-| M1 | 双盲匿名化 | ICIP要求 | [ ] |
-| M2 | 格式合规 (5页+参考文献) | ICIP要求 | [ ] |
-| M3 | RandAugment 35.30% 文字说明 | 意见2 | [x] ✅ |
-| M4 | K=8 算子完整列表 | 意见2 | [x] ✅ |
-| M5 | 目标函数显式定义 (α, λ) | 意见2 | [x] ✅ |
-| M6 | Shot sweep 实验 | 意见1&2 | [ ] |
-| M7 | Table 1 升级 (Min Acc, Lower Bound) | 意见1&2 | [ ] |
-| M8 | 方法命名 SAS | 意见1 | [ ] |
-| M9 | Introduction 三条贡献 | 意见1&2 | [ ] |
-| M10 | 评估协议说明/局限性承认 | 意见2 | [ ] |
+| 编号 | 任务 | 状态 |
+|------|------|------|
+| C1 | 双盲匿名化 | ✅ |
+| C2 | RandAugment 35.30% 文字说明 | ✅ |
+| C3 | K=8 算子完整列表 | ✅ |
+| C4 | 目标函数显式定义 (α=1.0) | ✅ |
+| C5 | 复杂度 C 公式 | ✅ |
+| C6 | CIFAR-10 50% 零方差解释 | ✅ |
+| C7 | 评估协议说明/局限性承认 | ✅ |
 
-### 强烈建议 (Should-Have)
+### 🔴 P1: 写作任务 (不需要实验)
 
-| 编号 | 任务 | 来源 | 状态 |
-|------|------|------|------|
-| S1 | Seed 方差报告 | 意见2 | [ ] |
-| S2 | 换 Backbone 实验 | 意见1&2 | [ ] |
-| S3 | 搜索流程消融 | 意见1 | [ ] |
-| S4 | 统计显著性检验 | 意见1 | [ ] |
-| S5 | 语义保持硬指标 (Label Consistency) | 意见2 | [ ] |
-| S6 | CIFAR-10 50% 每折原始值 | 意见2 | [ ] |
-| S7 | 完善伪代码/算法框图 | 意见1 | [ ] |
-| S8 | 相关工作补充 (2024-2025) | 意见1 | [ ] |
-| S9 | Future Work 小节 | 意见1 | [ ] |
+| 编号 | 任务 | 优先级 | 状态 |
+|------|------|--------|------|
+| W1 | 方法命名 SAS + 全文替换 | ⭐⭐⭐ | [x] ✅ |
+| W2 | Abstract 重写 | ⭐⭐⭐ | [x] ✅ |
+| W3 | Introduction 三条贡献 | ⭐⭐⭐ | [x] ✅ |
+| W4 | 完善伪代码/算法框图 | ⭐⭐ | [x] ✅ |
+| W5 | 相关工作补充 (2024-2025) | ⭐⭐ | [ ] |
+| W6 | Limitations + Future Work 扩展 | ⭐⭐ | [x] ✅ |
+| W7 | 全文一致性检查 | ⭐ | [x] ✅ |
+| W8 | Figure 1 标注强化 | ⭐ | [x] ✅ 代码 |
+| W9 | 标题修改 (可选) | ⭐ | [ ] |
 
-### 可选 (Nice-to-Have)
+### 🟠 P2: 数据分析任务 (基于现有数据)
 
-| 编号 | 任务 | 来源 | 状态 |
-|------|------|------|------|
-| N1 | 真实数据集 (ISIC等) | 意见1 | [ ] |
-| N2 | 标题修改 | 意见1 | [ ] |
-| N3 | ViT 实验 | 意见1&2 | [ ] |
-| N4 | 嵌套式交叉验证实验 | 意见2 | [ ] |
-| N5 | RandAugment 局部扫描曲线 | 意见2 | [ ] |
+| 编号 | 任务 | 优先级 | 状态 |
+|------|------|--------|------|
+| A1 | Table 1 升级 (Min Acc, Lower Bound, 95% CI) | ⭐⭐⭐ | [ ] |
+| A2 | 统计显著性检验 (t-test, Levene's test) | ⭐⭐ | [ ] |
+
+### 🟡 P3: 核心实验 (必做)
+
+| 编号 | 任务 | 增强效果 | 优先级 | 状态 |
+|------|------|----------|--------|------|
+| E1 | Shot Sweep 实验 | 极高 - 核心论点支撑 | ⭐⭐⭐ | [ ] |
+| E2 | 搜索流程消融 | 高 - 证明方法论必要性 | ⭐⭐⭐ | [ ] |
+
+### 🟢 P4: 增强实验 (建议做)
+
+| 编号 | 任务 | 增强效果 | 优先级 | 状态 |
+|------|------|----------|--------|------|
+| E3 | 换 Backbone (WRN-28-10) | 高 - 证明泛化性 | ⭐⭐ | [ ] |
+| E4 | Seed 方差报告 | 中高 - 补充可信度 | ⭐⭐ | [ ] |
+| E5 | 语义保持硬指标 (Label Consistency) | 中 - 补充评估维度 | ⭐ | [ ] |
+
+### 🔵 P5: 可选实验 (时间充裕时)
+
+| 编号 | 任务 | 增强效果 | 优先级 | 状态 |
+|------|------|----------|--------|------|
+| E6 | Failure Cases 可视化 | 中 - 直观展示 | ⭐ | [ ] |
+| E7 | 训练效率对比 | 低 - 非核心 | ⭐ | [ ] |
+| E8 | RandAugment 局部扫描曲线 | 低 - 已有文字 | ⭐ | [ ] |
+| E9 | 嵌套式交叉验证 | 中 - 工作量大 | ⭐ | [ ] |
+| E10 | ViT 实验 | 中 - 可放 Future Work | ⭐ | [ ] |
+| E11 | 真实数据集 (ISIC等) | 高 - 工作量极大 | ⭐ | [ ] |
+
+### ⚪ P6: 提交检查
+
+| 编号 | 任务 | 状态 |
+|------|------|------|
+| S1 | 格式合规 (5页+参考文献) | [ ] |
+| S2 | PDF eXpress 验证 | [ ] |
+| S3 | 字体嵌入检查 | [ ] |
+| S4 | 页码移除确认 | [ ] |
+| S5 | 最终通读 | [ ] |
+| S6 | **图片数据验证** (6张图 vs CSV) | [ ] |
 
 ---
 
-*最后更新: 2026-01-23 (融合4份审稿意见)*
+*最后更新: 2026-01-23 (按新优先级重排)*
