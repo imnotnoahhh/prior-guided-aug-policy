@@ -9,6 +9,7 @@
 \usepackage{algpseudocode}  % 解决 algorithmic 报错
 \usepackage{booktabs}       % 解决 \toprule, \midrule 报错
 \usepackage{xurl}
+\usepackage[pdfauthor={},pdftitle={},pdfsubject={},pdfkeywords={}]{hyperref}  % 清理PDF元数据，确保双盲
 
 % Example definitions.
 % --------------------
@@ -83,7 +84,9 @@ Our search didn't just try to get the best accuracy. It looked at a full space o
 \end{figure}
 
 \subsection{Search Space Definition}
-We consider a search space of $K=8$ candidate operations (e.g., ColorJitter, RandomErasing), each parameterized by Magnitude ($m$) and Probability ($p$). Following standard practice, we treat the best augmentation configuration $\theta^*$ as a point in a continuous 2D parameter space, allowing precise tuning.
+We consider a search space of $K=8$ candidate operations, each parameterized by Magnitude ($m \in [0,1]$) and Probability ($p \in [0,1]$). The operations include: ColorJitter, RandomGrayscale, GaussianNoise, RandomResizedCrop, RandomRotation, GaussianBlur, RandomErasing, and RandomPerspective. Each magnitude $m$ maps linearly to operation-specific physical parameters (e.g., ColorJitter: brightness/contrast/saturation $\in [0, 0.8m]$; RandomRotation: degrees $\in [0, 30m]$). Full parameter mappings are provided in Appendix \ref{app:implementation}.
+
+We define augmentation complexity $C$ as the expected number of transformations applied per sample: $C = \sum_{i=1}^{K} p_i$. For RandAugment, $C = N$ (fixed). For our single-operation policy, $C \leq 1$.
 
 \begin{figure}[htbp]
     \centering
@@ -99,7 +102,7 @@ To handle the stability-accuracy trade-off, we didn't do a normal grid search. I
 
 \textbf{Phase B: Tuning.} For the candidates that pass this screen, we apply ASHA \cite{li2020system} to fine-tune them. This step dynamically focuses our computing budget on the best performers, discarding weak configurations early. This precise tuning of $(m, p)$ was done at a fraction of the cost of a full grid search.
 
-\textbf{Phase C: Composition.} Finally, we look at composition (Procedure \ref{alg:phase_c}). We use a tailored greedy strategy where a new operation is rejected unless its accuracy boost significantly outweighs the variance cost. Interestingly, this check almost always rejected multi-operation policies, repeatedly converging on single, stable transformations.
+\textbf{Phase C: Composition.} Finally, we look at composition (Procedure \ref{alg:phase_c}). We use a stability-aware greedy strategy with selection criterion: a candidate operation is accepted only if $\text{Acc}_{trial} > \text{Acc}_{best} + \alpha \cdot \sigma_{trial}$, where $\alpha = 1.0$ penalizes variance. This is equivalent to maximizing the lower bound (Mean $-$ Std). Interestingly, this check almost always rejected multi-operation policies, repeatedly converging on single, stable transformations.
 
 \begin{algorithm}[htbp]
 \caption{Greedy Selection Procedure (Phase C)}
@@ -172,7 +175,7 @@ Table \ref{tab:main_results} compares our single-operation policy against standa
 
 \textbf{Accuracy-Stability Trade-off.} To measure this trade-off, we define augmentation complexity $C$ as the expected number of transformations applied per sample: $C = \sum p_i$. For RandAugment, complexity is the fixed number of operations applied $N=2$. For our single-operation policy, $C \le 1$. Figure \ref{fig:complexity} (Introduction) shows the main finding.
 
-\textbf{Fair Comparison: Tuning RandAugment.} A common critique is that RandAugment might outperform if properly tuned. To address this, we performed a random search for optimal RandAugment parameters ($N \in [1,3], M \in [1,14]$) on the same 100-shot setup. The best configuration found was $N=1, M=2$ (a minimal augmentation), which achieved a validation accuracy of 35.30\% (averaged over 200 epochs). This is significantly lower than both the default RandAugment (42.24\%) and the single-operation policy (40.74\%).
+\textbf{Fair Comparison: Tuning RandAugment.} A common critique is that RandAugment might outperform if properly tuned. To address this, we performed a random search for optimal RandAugment parameters ($N \in \{1,2,3\}$, $M \in \{1,...,14\}$) on the same 100-shot setup. We sampled 10 random configurations, trained each for 40 epochs on Fold 0 for quick screening, then fully trained the best configuration (N=1, M=2) for 200 epochs. This achieved only 35.30\% validation accuracy---significantly lower than both default RandAugment (42.24\%) and our single-operation policy (40.74\%). We use the official \texttt{torchvision.transforms.RandAugment} implementation with identical operation pool to ensure fair comparison.
 
 Why do complex strategies fail here? Two reasons stand out. First, \textbf{Validation Overfitting}: with scarce data, the search algorithm easily exploits noise in the small validation set, selecting parameters that fail to generalize. Second, \textbf{Loss of Inductive Biases}: the default RandAugment parameters ($N=2, M=9$) effectively serve as a strong prior derived from large-scale datasets (ImageNet). Blindly searching from scratch discards this inductive bias. Our single-op policy works because it stays within a safe ``semantic corridor,'' modifying images enough to teach invariance without confusing the model with extraneous noise.
 
@@ -187,6 +190,8 @@ Why do complex strategies fail here? Two reasons stand out. First, \textbf{Valid
 
 \section{Limitations}
 Our study is limited to convolutional architectures (ResNet-18) trained from scratch on CIFAR-100. Whether similar conclusions hold for large pre-trained models, Vision Transformers (ViTs), or other datasets remains to be seen. ViTs, for instance, often benefit from stronger regularization due to their lack of inductive biases. Future work should investigate whether this accuracy-stability trade-off generalizes to other architectures and data regimes.
+
+\textbf{Evaluation Protocol.} We acknowledge a potential limitation: the same validation folds used for policy selection (Phase A/B/C) are also used for final reporting. To mitigate selection bias, we (1) use 5-fold cross-validation to reduce single-split variance, and (2) report results across multiple random seeds. Importantly, our core claim concerns \textit{relative stability} (variance comparison) rather than absolute accuracy, which is less susceptible to selection bias. Future work should adopt a nested cross-validation protocol where inner folds are used for search and outer folds for evaluation.
 
 \begin{figure}[htbp]
     \centering
@@ -217,14 +222,39 @@ All experiments are conducted on CIFAR-100 subsampled to 100 images per class (1
 \begin{itemize}
     \item \textbf{Baseline}: RandomCrop (32$\times$32, padding=4) + RandomHorizontalFlip ($p=0.5$).
     \item \textbf{Cutout}: Number of holes=1, Length=16.
-    \item \textbf{RandAugment}: Number of operations $N=2$, Magnitude $M=9$.
+    \item \textbf{RandAugment}: Number of operations $N=2$, Magnitude $M=9$. Implementation: \texttt{torchvision.transforms.RandAugment}.
     \item \textbf{Single-Op Policy}: Search Space $K=8$ operations. Magnitude $m \in [0, 1]$ (continuous), Probability $p \in [0, 1]$ (continuous).
 \end{itemize}
+
+\subsection{Operation Parameter Mapping}
+Table \ref{tab:op_mapping} shows how normalized magnitude $m \in [0,1]$ maps to physical parameters for each candidate operation.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Magnitude to physical parameter mapping for $K=8$ candidate operations.}
+    \label{tab:op_mapping}
+    \resizebox{\linewidth}{!}{
+        \begin{tabular}{lll}
+            \toprule
+            Operation & Parameter & Mapping ($m \in [0,1]$) \\
+            \midrule
+            ColorJitter & brightness, contrast, saturation & $[0, 0.8m]$, hue$=0$ \\
+            RandomGrayscale & probability & $[0, 0.5m]$ (binary effect) \\
+            GaussianNoise & $\sigma$ & $[0, 0.1m]$ \\
+            RandomResizedCrop & scale\_min & $[1.0 - 0.75m, 1.0]$ \\
+            RandomRotation & degrees & $[0, 30m]$ \\
+            GaussianBlur & $\sigma$ & $[0.1, 0.1 + 1.9m]$ \\
+            RandomErasing & scale & $[0.02, 0.02 + 0.38m]$ \\
+            RandomPerspective & distortion & $[0, 0.5m]$ \\
+            \bottomrule
+        \end{tabular}
+    }
+\end{table}
 
 \section{Reproducibility Details}
 \label{app:repro}
 
-To ensure full reproducibility, we provide specific settings in the code\footnote{Code available at: \url{https://github.com/imnotnoahhh/Rethinking-Augmentation}}.
+To ensure full reproducibility, we provide specific settings below. Code will be made publicly available upon acceptance.
 
 \subsection{Best-Performing Policy}
 The best policy found by the search protocol on the CIFAR-100 (100-shot) task consists of a single operation:
