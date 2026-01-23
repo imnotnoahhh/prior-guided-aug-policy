@@ -1,21 +1,34 @@
+% Template for ICIP-2026 paper; to be used with:
+%          spconf.sty  - ICASSP/ICIP LaTeX style file, and
+%          IEEEbib.bst - IEEE bibliography style file.
+% --------------------------------------------------------------------------
 \documentclass{article}
+\usepackage{spconf,amsmath,graphicx}
+\usepackage{float}          % 解决 [htbp] 报错
+\usepackage{algorithm}      % 解决 algorithm 环境报错
+\usepackage{algpseudocode}  % 解决 algorithmic 报错
+\usepackage{booktabs}       % 解决 \toprule, \midrule 报错
+\usepackage{xurl}
 
-% 导入必要的包
-\usepackage{graphicx} % 插入图片
-\usepackage{booktabs} % 绘制三线表
-\usepackage{amsmath}  % 数学公式
-\usepackage{float}    %以此强行固定图片位置
-\usepackage{algorithm}
-\usepackage{algpseudocode}
-\usepackage{hyperref}  % 处理url和超链接
+% Example definitions.
+% --------------------
+\def\x{{\mathbf x}}
+\def\L{{\cal L}}
 
+% Title.
+% ------
 \title{When More is Not Better: Rethinking Data Augmentation under Small-Sample Regimes}
-\author{Fuyao Qin}
-\date{January 2026}
+%
+% Single address.
+% ---------------
+\name{Author(s) Name(s)}
+\address{Author Affiliation(s)}
 
 \begin{document}
-
+\ninept
+%
 \maketitle
+%
 
 \begin{abstract}
 This paper questions the common belief that more complex data augmentation methods necessarily lead to better outcomes. Typical automated techniques, like RandAugment, depend on complicated, multi-step processes which usually don't perform well when data is limited. By concentrating on a CIFAR-100 setup with just 100 samples for each class, we found a clear trade-off: more complex augmentations raise training variance, which cancels out any possible gains. Instead of seeking intricate combinations, our three-step method, which focuses on stability, discovers that a single, carefully adjusted operation (ColorJitter) achieves competitive performance compared to RandAugment (40.74\% versus 42.24\%) while lowering variance by 33\%. These results suggest that in this specific small-sample regime, stability is more important than complexity.
@@ -25,31 +38,33 @@ This paper questions the common belief that more complex data augmentation metho
 
 When training data is subsampled to fewer than 100 samples for each class, basic assumptions about data augmentation don't hold up. In commonly used tests like ImageNet, the general thought is that ``more is better''---meaning that more operations and bigger magnitudes lead to better generalization. But, our experiments on low-shot CIFAR-100 show that these complex policies bring in a substantial amount of instability. Strong augmentations like RandAugment can compromise the fundamental meaning of the few samples available, causing models to change a lot between different folds of data.
 
-We look into this by asking: are these complex policies needed---or are they actually harmful---when there's very little data?
+We look into this by asking: are these complex policies needed --- or are they actually harmful --- when there's very little data?
 
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.9\linewidth]{fig1_complexity_gap.png}
     \caption{\textbf{The trade-off between accuracy and stability when working with small samples.} This shows how validation accuracy, training instability (standard deviation $\sigma$), and augmentation complexity relate to each other across different policies. Results are averages from 5 separate folds. A single, well-adjusted operation (Green) finds a good balance between how well it works and how reliable it is.}
     \label{fig:complexity}
+    
 \end{figure}
 
-\begin{figure}[H]
+\begin{figure*}[htbp]
     \centering
     \includegraphics[width=1.0\linewidth]{fig2_pipeline_schematic.png}
     \caption{\textbf{Overview of the augmentation search protocol.} Our three-part process: (I-II) Phase A uses Sobol sampling for quick, low-level testing; (III) Phase B uses the ASHA scheduler to precisely adjust the magnitude ($m^*$) and probability ($p^*$); (IV) Phase C uses a greedy composition with stability constraints, resulting in the choice of a single, robust operation.}
     \label{fig:pipeline}
-\end{figure}
+    
+\end{figure*}
 
 In this paper, we conduct a systematic study on CIFAR-100 \cite{krizhevsky2009learning} with only 100 samples per class. We observe that while RandAugment provides a marginal accuracy gain, it introduces significant instability. Our search protocol specifically aims for stability to fix this problem. By removing operations that cause variance early on, we indicate that a simple approach often yields the most reliable models in this regime.
 
 Our search didn't just try to get the best accuracy. It looked at a full space of Magnitude-Probability, used multi-level optimization to quickly get rid of bad choices, and used a greedy selection that clearly penalized variance. Surprisingly, this thorough process regularly picked a single operation, rejecting complex combinations. This suggests that when working with small samples, the easiest augmentation that works may be the most reliable.
 
-\begin{figure}[t]
+\begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.9\linewidth]{strategic_collapse.png}
-    \caption{\textbf{Analysis of Policy Selection}: As the number of operations in the policy increases (Greedy Search), the validation variance greatly increases (red bars), often canceling out small gains in accuracy. The search finds that a single, well-adjusted operation ($N=1$) gives the best trade-off between accuracy and stability for this low-data situation.}
-    \label{fig:collapse}
+    \includegraphics[width=1.0\linewidth]{fig3_augmentation_grid.png}
+    \caption{\textbf{Candidate Augmentation Operations.} Visualization of the search space pool. Samples are shown with large magnitude parameters for illustrative purposes. Each operation is evaluated for its stability-efficiency trade-off independently before considering composition.}
+    \label{fig:augmentations}
 \end{figure}
 
 \section{Related Work}
@@ -60,17 +75,17 @@ Our search didn't just try to get the best accuracy. It looked at a full space o
 
 \section{Augmentation Search Protocol}
 
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
-    \includegraphics[width=1.0\linewidth]{fig3_augmentation_grid.png}
-    \caption{\textbf{Candidate Augmentation Operations.} Visualization of the search space pool. Samples are shown with large magnitude parameters for illustrative purposes. Each operation is evaluated for its stability-efficiency trade-off independently before considering composition.}
-    \label{fig:augmentations}
+    \includegraphics[width=0.9\linewidth]{strategic_collapse.png}
+    \caption{\textbf{Analysis of Policy Selection}: As the number of operations in the policy increases (Greedy Search), the validation variance greatly increases (red bars), often canceling out small gains in accuracy. The search finds that a single, well-adjusted operation ($N=1$) gives the best trade-off between accuracy and stability for this low-data situation.}
+    \label{fig:collapse}
 \end{figure}
 
 \subsection{Search Space Definition}
 We consider a search space of $K=8$ candidate operations (e.g., ColorJitter, RandomErasing), each parameterized by Magnitude ($m$) and Probability ($p$). Following standard practice, we treat the best augmentation configuration $\theta^*$ as a point in a continuous 2D parameter space, allowing precise tuning.
 
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.8\linewidth]{fig4_search_space_colorjitter.png}
     \caption{\textbf{Empirical Search Manifold.} Validation accuracy distribution over the continuous 2D search space (Magnitude $m$, Probability $p$) for \texttt{ColorJitter}, obtained during Phase A screening. The red marker denotes the high-performance region identified for fine-tuning in Phase B.}
@@ -86,7 +101,7 @@ To handle the stability-accuracy trade-off, we didn't do a normal grid search. I
 
 \textbf{Phase C: Composition.} Finally, we look at composition (Procedure \ref{alg:phase_c}). We use a tailored greedy strategy where a new operation is rejected unless its accuracy boost significantly outweighs the variance cost. Interestingly, this check almost always rejected multi-operation policies, repeatedly converging on single, stable transformations.
 
-\begin{algorithm}[H]
+\begin{algorithm}[htbp]
 \caption{Greedy Selection Procedure (Phase C)}
 \label{alg:phase_c}
 \begin{algorithmic}[1]
@@ -124,28 +139,31 @@ To handle the stability-accuracy trade-off, we didn't do a normal grid search. I
 \subsection{Main Results}
 Table \ref{tab:main_results} compares our single-operation policy against standard baselines.
 
-\begin{table}[H]
+\begin{table}[htbp] % 建议把 [htbp] 改成 [htbp] 以免排版出错，如果你非要固定位置可以用 [htbp]
     \centering
     \caption{Comparison on CIFAR-100 (100 samples/class). Results reported are \textbf{Cross-Validation Accuracy} over 5 folds (Search Phase).}
     \label{tab:main_results}
-    \begin{tabular}{lccc}
-        \toprule
-        Policy & Val Acc (CV) \% & Std Dev (Stability) & Complexity \\
-        \midrule
-        Baseline (S0) & 39.90 & 1.01 & Low \\
-        Baseline-NoAug & 29.08 & 3.30 & None \\
-        RandAugment & \textbf{42.24} & 1.17 & High (N=2) \\
-        Cutout & 36.26 & 1.23 & Med \\
-        \midrule
-        \textbf{Single-Op (ColorJitter)} & 40.74 & \textbf{0.78} & \textbf{Low (Single)} \\
-        \bottomrule
-    \end{tabular}
+    % --- 核心修改：加了 resizebox，内容完全保持原样 ---
+    \resizebox{\linewidth}{!}{
+        \begin{tabular}{lccc}
+            \toprule
+            Policy & Val Acc (CV) \% & Std Dev (Stability) & Complexity \\
+            \midrule
+            Baseline (S0) & 39.90 & 1.01 & Low \\
+            Baseline-NoAug & 29.08 & 3.30 & None \\
+            RandAugment & \textbf{42.24} & 1.17 & High (N=2) \\
+            Cutout & 36.26 & 1.23 & Med \\
+            \midrule
+            \textbf{Single-Op (ColorJitter)} & 40.74 & \textbf{0.78} & \textbf{Low (Single)} \\
+            \bottomrule
+        \end{tabular}
+    }
 \end{table}
 
 \subsection{Analysis}
 \textbf{The Stability Argument.} While RandAugment achieves a +1.5\% higher mean accuracy, this comes at a significant trade-off. As shown in Figure \ref{fig:stability}, RandAugment (Red) exhibits a much wider variance ($\sigma=1.17$) compared to the single-operation policy ($\sigma=0.78$). Note that this standard deviation represents \textbf{Fold Variance} (sensitivity to data splits). We also examined \textbf{Seed Variance} (sensitivity to initialization) in our CIFAR-10 experiments (see Appendix \ref{app:experiments}), confirming that the stability consistency holds across both data and initialization randomness. In small-sample applications (e.g., medical imaging), "lucky seeds" cannot be relied upon; a guaranteed, stable baseline is often preferred.
 
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.8\linewidth]{fig5_stability_boxplot.png}
     \caption{\textbf{Distribution of validation accuracy across 5 independent folds.} Comparison of Baseline, RandAugment, and the single-operation policy. While RandAugment exhibits higher peak performance, it suffers from significant variance, whereas the single-operation policy achieves competitive results with a 33\% reduction in standard deviation ($\sigma=0.78$ vs $1.17$).}
@@ -160,7 +178,7 @@ Why do complex strategies fail here? Two reasons stand out. First, \textbf{Valid
 
 \textbf{Semantic Preservation.} We hypothesize that the high variance of complex strategies stems from semantic destruction. To investigate this, we quantified the "destructiveness" of augmentation policies using SSIM (Structural Similarity) and LPIPS (Perceptual Similarity) metrics, averaged over 500 (Original, Augmented) validation image pairs. Results indicate that the single-operation policy maintains high structural integrity (SSIM: $\approx0.196$, LPIPS: $\approx0.091$), comparable to the minimal Baseline (SSIM: $\approx0.198$, LPIPS: $\approx0.084$). Note that absolute SSIM values are low due to geometric transformations causing spatial misalignment, so we focus on relative degradation. In contrast, RandAugment significantly distorts image structure (SSIM: $\approx0.147$, LPIPS: $\approx0.124$). This quantitative evidence supports our hypothesis: the single-operation policy improves performance by preserving semantic content, while RandAugment's gains come at the cost of aggressive distortion, leading to instability.
 
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=1.0\linewidth]{fig8_destructiveness.png}
     \caption{\textbf{Semantic Preservation Analysis.} Comparison of destructive metrics (SSIM and LPIPS) across strategies. The single-operation policy (Green) maintains structural similarity (SSIM $\uparrow$) and perceptual quality (LPIPS $\downarrow$) comparable to the Baseline, whereas RandAugment (Red) introduces significant semantic distortion. Error bars denote standard deviation.}
@@ -169,6 +187,13 @@ Why do complex strategies fail here? Two reasons stand out. First, \textbf{Valid
 
 \section{Limitations}
 Our study is limited to convolutional architectures (ResNet-18) trained from scratch on CIFAR-100. Whether similar conclusions hold for large pre-trained models, Vision Transformers (ViTs), or other datasets remains to be seen. ViTs, for instance, often benefit from stronger regularization due to their lack of inductive biases. Future work should investigate whether this accuracy-stability trade-off generalizes to other architectures and data regimes.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.8\linewidth]{fig7_ablation_magnitude.png}
+    \caption{\textbf{Sensitivity of validation accuracy to the Magnitude parameter $m$ (fixed $p=0.5$).} The 4.2\% accuracy gap between the optimal value ($m \approx 0.44$) and standard defaults ($m \approx 0.54$) highlights the necessity of Magnitude tuning in small-sample augmentation design.}
+    \label{fig:ablation}
+\end{figure}
 
 \section{Conclusion}
 Through a systematic empirical study on CIFAR-100 with 100 samples per class, we find that complex strategies stop working well when data is scarce. Our multi-phase search protocol identifies a single, well-tuned operation (ColorJitter) that achieves competitive accuracy with significantly lower variance compared to RandAugment. These findings suggest that, in our 100-shot CIFAR-100 scenario, augmentation design should prioritize stability over complexity.
@@ -199,7 +224,7 @@ All experiments are conducted on CIFAR-100 subsampled to 100 images per class (1
 \section{Reproducibility Details}
 \label{app:repro}
 
-To ensure full reproducibility of our results, we provide the specific parameters and settings used in our experiments. Code is available at \url{https://github.com/imnotnoahhh/Rethinking-Augmentation}.
+To ensure full reproducibility, we provide specific settings in the code\footnote{Code available at: \url{https://github.com/imnotnoahhh/Rethinking-Augmentation}}.
 
 \subsection{Best-Performing Policy}
 The best policy found by the search protocol on the CIFAR-100 (100-shot) task consists of a single operation:
@@ -207,7 +232,7 @@ The best policy found by the search protocol on the CIFAR-100 (100-shot) task co
     \item \textbf{Operation}: ColorJitter
     \item \textbf{Parameters}: Magnitude $m=0.2575$, Probability $p=0.4239$
 \end{itemize}
-Note that \texttt{ColorJitter} in PyTorch has multiple sub-parameters (brightness, contrast, saturation, hue). In our implementation, we tie the first three to the magnitude $m$, i.e., \texttt{ColorJitter(brightness=m, contrast=m, saturation=m, hue=0)}.
+Specifically, we constrain \texttt{ColorJitter} by tying brightness, contrast, and saturation to magnitude $m$: $(b, c, s, h) = (m, m, m, 0)$.
 
 \subsection{Random Seeds}
 We used the following random seeds for the final evaluation and stability checks:
@@ -227,7 +252,7 @@ Total search time is $<$ 4 hours on a single GPU.
 \subsection{Generalization to CIFAR-10 (50-shot)}
 To evaluate generalization across different datasets and sample regimes, we performed an experiment on CIFAR-10 subsampled to 50 images per class (500 images total). We used the exact same training protocol (ResNet-18, 5 folds, 200 epochs) as the main experiments.
 
-\begin{table}[H]
+\begin{table}[htbp]
     \centering
     \caption{Results on CIFAR-10 (50-shot). The single-operation policy matches the performance of RandAugment while maintaining consistent zero variance across folds, whereas the Baseline exhibits extreme variance.}
     \label{tab:cifar10}
@@ -242,7 +267,7 @@ To evaluate generalization across different datasets and sample regimes, we perf
     \end{tabular}
 \end{table}
 
-\begin{figure}[H]
+\begin{figure}[htbp]
     \centering
     \includegraphics[width=0.8\linewidth]{fig6_cifar10_generalization.png}
     \caption{\textbf{Cross-dataset Generalization Benchmarking.} Comparative performance on CIFAR-10 (50-shot) sampled over 5 folds. Error bars indicate standard deviation. The single-operation policy maintains competitive accuracy with zero induced training variance in this extreme data-scarce regime.}
@@ -254,15 +279,9 @@ The zero variance is due to performance saturation under this extreme low-data r
 \subsection{Ablation: The Necessity of Magnitude Search}
 We investigated whether searching for Magnitude ($m$) is necessary, or if simply fixing Probability ($p$) would suffice. We fixed $p=0.5$ for the best operation (ColorJitter) and searched only for $m$ using 10 Sobol samples.
 
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.8\linewidth]{fig7_ablation_magnitude.png}
-    \caption{\textbf{Sensitivity of validation accuracy to the Magnitude parameter $m$ (fixed $p=0.5$).} The 4.2\% accuracy gap between the optimal value ($m \approx 0.44$) and standard defaults ($m \approx 0.54$) highlights the necessity of Magnitude tuning in small-sample augmentation design.}
-    \label{fig:ablation}
-\end{figure}
 The results show clear performance variance driven by magnitude changes, validating our design choice of a 2D search space $(m, p)$ over a simplified 1D search.
 
-\bibliographystyle{plain}
+\bibliographystyle{IEEEbib}
 \bibliography{references}
 
 \end{document}
