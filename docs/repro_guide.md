@@ -62,32 +62,36 @@ tail -f logs/full_run.log
 ## Shot Sweep 实验 (Trend Analysis)
 验证 SAS 在不同样本量下的表现趋势：
 
-```bash
-# Step 1: 方向性信号 (~30-45 min)
-python scripts/run_shot_sweep.py --shots 50 --folds 0 --epochs 50
+**重要**: 每个 Step 使用独立 output_dir，避免结果污染！
 
-# Step 2: 加 20-shot 判断趋势 (~1-1.5h total)
-python scripts/run_shot_sweep.py --shots 50,20 --folds 0 --epochs 50
+```bash
+# Step 1: 验证 SAS 收敛 (~15-20 min)
+python scripts/run_shot_sweep.py --shots 50 --folds 0 --epochs 50 \
+  --methods Baseline,SAS --output_dir outputs_step1 --batch_size 128 --num_workers 8
+
+# Step 2: 加 RandAugment 和 20-shot 判断趋势 (~1-1.5h total)
+python scripts/run_shot_sweep.py --shots 50,20 --folds 0 --epochs 50 \
+  --methods Baseline,RandAugment,SAS --output_dir outputs_step2 --batch_size 128 --num_workers 8
 
 # 画图检查趋势
-python scripts/plot_shot_sweep.py
+python scripts/plot_shot_sweep.py --output_dir outputs_step2
 
 # Step 3: 完整版 (只有 Step 2 有意义才跑)
-python scripts/run_shot_sweep.py --shots 20,50,200 --folds 0,1,2,3,4 --epochs 200
+python scripts/run_shot_sweep.py --shots 20,50,200 --folds 0,1,2,3,4 --epochs 200 \
+  --methods Baseline,RandAugment,SAS --output_dir outputs_final --batch_size 128 --num_workers 8
 
-# Dry run 测试
-python scripts/run_shot_sweep.py --dry_run --epochs 2
+# 画最终图
+python scripts/plot_shot_sweep.py --output_dir outputs_final
 ```
 
 注意:
-- 100-shot 会自动从 `phase_d_results.csv` 复用
 - `--data_seed` 控制数据采样 (默认 42，保持固定)
 - `--seed` 控制训练随机性
 
 Output:
-- `outputs/shot_sweep_results.csv` (原始结果)
-- `outputs/shot_sweep_summary.csv` (汇总统计)
-- `outputs/figures/fig_shot_sweep_*.png` (可视化图表)
+- `outputs_stepX/shot_sweep_results.csv` (原始结果)
+- `outputs_stepX/shot_sweep_summary.csv` (汇总统计)
+- `outputs_stepX/figures/fig_shot_sweep_*.png` (可视化图表)
 
 ---
 
@@ -123,3 +127,19 @@ python scripts/visualize_augmentations.py --policy outputs/phase_c_final_policy.
 生成最终策略在真实图片上的增强效果示例。
 
 **输出目录**: `outputs/figures/augment_examples/`
+
+### 4. Failure Cases 可视化
+```bash
+python scripts/visualize_failure_cases.py
+```
+对比 RandAugment vs SAS 的增强效果，展示语义破坏问题。
+
+协议:
+- 验证集随机抽 N=10，seed=42 固定
+- 每张: 原图 → RandAugment (2次采样) → SAS (1次采样)
+- 标注: 预测结果、置信度、SSIM 值
+- 使用 baseline_best.pth 模型预测
+
+Output:
+- `outputs/figures/fig_failure_cases.png` (完整 10 行)
+- `outputs/figures/fig_failure_cases_teaser.png` (Intro 用 3 行版)

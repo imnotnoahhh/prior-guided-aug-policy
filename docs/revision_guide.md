@@ -344,14 +344,24 @@ python scripts/plot_shot_sweep.py --output_dir outputs_final
 
 **输出**: 表格含选中的 Op 与强度参数 (证明调优有效)
 
-### 1.3 Failure Cases 可视化 ⭐⭐ (CPU 并行)
+### 1.3 Failure Cases 可视化 ⭐⭐ (CPU 并行) ✅ 已完成
 
 **协议** (固定，避免挑图质疑):
 - 验证集随机抽 N=10，seed=42 固定
 - 每张展示: 原图 → RandAugment (2次采样) → SAS (1次采样)
 - 标注: 预测结果、置信度、SSIM 值
+- 使用 baseline_best.pth 模型预测
+- 使用 Phase B 调优的 SAS 参数 (m=0.2575, p=0.4239)
 
-**放置位置**: Results 第一屏，Intro 放小 teaser (看版面)
+```bash
+python scripts/visualize_failure_cases.py
+```
+
+**输出**:
+- `outputs/figures/fig_failure_cases.png` (完整 10 行)
+- `outputs/figures/fig_failure_cases_teaser.png` (3 行版)
+
+**放置位置**: Analysis 部分 Semantic Preservation 段落后，作为可视化证据
 
 ---
 

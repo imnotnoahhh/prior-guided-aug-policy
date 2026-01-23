@@ -191,13 +191,20 @@ Table \ref{tab:main_results} compares SAS against standard baselines.
 
 Why do complex strategies fail here? Two reasons stand out. First, \textbf{Validation Overfitting}: with scarce data, the search algorithm easily exploits noise in the small validation set, selecting parameters that fail to generalize. Second, \textbf{Loss of Inductive Biases}: the default RandAugment parameters ($N=2, M=9$) effectively serve as a strong prior derived from large-scale datasets (ImageNet). Blindly searching from scratch discards this inductive bias. SAS works because it stays within a safe ``semantic corridor,'' modifying images enough to teach invariance without confusing the model with extraneous noise.
 
-\textbf{Semantic Preservation.} We hypothesize that the high variance of complex strategies stems from semantic destruction. To investigate this, we quantified the "destructiveness" of augmentation policies using SSIM (Structural Similarity) and LPIPS (Perceptual Similarity) metrics, averaged over 500 (Original, Augmented) validation image pairs. Results indicate that the SAS maintains high structural integrity (SSIM: $\approx0.196$, LPIPS: $\approx0.091$), comparable to the minimal Baseline (SSIM: $\approx0.198$, LPIPS: $\approx0.084$). Note that absolute SSIM values are low due to geometric transformations causing spatial misalignment, so we focus on relative degradation. In contrast, RandAugment significantly distorts image structure (SSIM: $\approx0.147$, LPIPS: $\approx0.124$). This quantitative evidence supports our hypothesis: the SAS improves performance by preserving semantic content, while RandAugment's gains come at the cost of aggressive distortion, leading to instability.
+\textbf{Semantic Preservation.} We hypothesize that the high variance of complex strategies stems from semantic destruction. To investigate this, we quantified the "destructiveness" of augmentation policies using SSIM (Structural Similarity) and LPIPS (Perceptual Similarity) metrics, averaged over 500 (Original, Augmented) validation image pairs. Results indicate that the SAS maintains high structural integrity (SSIM: $\approx0.196$, LPIPS: $\approx0.091$), comparable to the minimal Baseline (SSIM: $\approx0.198$, LPIPS: $\approx0.084$). Note that absolute SSIM values are low due to geometric transformations causing spatial misalignment, so we focus on relative degradation. In contrast, RandAugment significantly distorts image structure (SSIM: $\approx0.147$, LPIPS: $\approx0.124$). This quantitative evidence supports our hypothesis: the SAS improves performance by preserving semantic content, while RandAugment's gains come at the cost of aggressive distortion, leading to instability. Figure \ref{fig:failure_cases} provides visual evidence of this semantic destruction.
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=1.0\linewidth]{fig8_destructiveness.png}
     \caption{\textbf{Semantic Preservation Analysis.} Comparison of destructive metrics (SSIM and LPIPS) across strategies. The SAS (Green) maintains structural similarity (SSIM $\uparrow$) and perceptual quality (LPIPS $\downarrow$) comparable to the Baseline, whereas RandAugment (Red) introduces significant semantic distortion. Error bars denote standard deviation.}
     \label{fig:destructiveness}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.0\linewidth]{fig_failure_cases_teaser.png}
+    \caption{\textbf{Visual Comparison of Augmentation Effects.} Random validation samples (seed=42) showing Original $\rightarrow$ RandAugment (2 samples) $\rightarrow$ SAS. RandAugment introduces black borders, color inversion, and severe distortion (low SSIM), leading to misclassification (red). SAS preserves semantic content with higher SSIM.}
+    \label{fig:failure_cases}
 \end{figure}
 
 \section{Limitations and Future Work}
