@@ -52,6 +52,36 @@ python scripts/run_final_tuned_ra.py
 
 
 
+### 4. 搜索流程消融 (Search Workflow Ablation)
+验证各搜索阶段的必要性：
+```bash
+python scripts/run_search_ablation.py
+```
+对比 Phase A only (Sobol 筛选最优配置) vs Full SAS (含 ASHA 调优)。
+
+Output: `outputs/search_ablation_results.csv`
+
+### 5. CIFAR-10 泛化实验 (Cross-dataset Generalization)
+在 CIFAR-10 (50-shot) 上验证泛化性：
+```bash
+python scripts/run_cifar10_50shot.py
+```
+Output: `outputs/cifar10_50shot_results.csv`
+
+### 6. Magnitude 消融 (Ablation: Fixed p=0.5)
+验证 Magnitude 搜索的必要性：
+```bash
+python scripts/run_ablation_fixed_p.py
+```
+Output: `outputs/ablation/ablation_p0.5_*.csv`
+
+### 7. Table 1 统计分析
+生成扩展统计指标 (Min Acc, Lower Bound, 95% CI)：
+```bash
+python scripts/analyze_table1_stats.py
+```
+Output: `outputs/table1_extended.csv`
+
 ## 后台运行示例
 如需断线续跑，可使用 nohup：
 ```bash
@@ -151,3 +181,74 @@ python scripts/visualize_failure_cases.py
 Output:
 - `outputs/figures/fig_failure_cases.png` (完整 10 行)
 - `outputs/figures/fig_failure_cases_teaser.png` (Intro 用 3 行版)
+
+---
+
+## 提交检查清单 (ICIP 2026)
+
+### 格式合规检查
+
+| 要求 | 规格 | 检查 |
+|------|------|------|
+| 技术内容 | ≤ 5页 | [ ] |
+| 第6页 | 仅参考文献 | [ ] |
+| 纸张尺寸 | US Letter (8.5" × 11") | [ ] |
+| 字体大小 | ≥ 9pt (全文包括图注) | [ ] |
+| 页码 | **不要添加页码** | [ ] |
+
+### PDF eXpress 验证
+
+提交前**必须**通过 IEEE PDF eXpress 验证：
+- 网址: https://ieee-pdf-express.org/account/login
+- **Conference ID: 61757X**
+- 创建账户 → 上传 PDF → 修复问题 → 获得合规版本
+
+### 双盲版检查
+
+- [ ] 作者栏为空或显示 "Anonymous Authors"
+- [ ] 无 GitHub 链接、无个人主页
+- [ ] PDF 元数据已清理
+- [ ] 文件名不含个人信息 (建议: `ICIP2026_submission.pdf`)
+
+### 图片数据验证
+
+| 图片 | 验证内容 |
+|------|----------|
+| fig1_complexity_gap.png | 匹配 `phase_d_summary.csv` |
+| fig5_stability_boxplot.png | 匹配 `phase_d_results.csv` |
+| fig6_cifar10_generalization.png | 匹配 `cifar10_50shot_results.csv` |
+| fig7_ablation_magnitude.png | 匹配 `ablation_p0.5_summary.csv` |
+| fig8_destructiveness.png | 匹配 `destructiveness_metrics.csv` |
+
+```bash
+# 重新生成所有图片
+python scripts/generate_paper_figures.py
+```
+
+### ORCID 要求
+
+> **所有作者必须提供 ORCID**，否则无法提交。
+> 注册网址: https://orcid.org/register
+
+---
+
+## Rebuttal 准备
+
+ICIP 2026 有 Rebuttal 环节。常见质疑及回应：
+
+| 可能质疑 | 准备的回应 |
+|----------|------------|
+| "为什么不用更大的数据集验证?" | 小样本场景的实际应用背景 (医学影像等) |
+| "ColorJitter 是否只是巧合?" | 搜索消融实验结果 (Phase A only vs Full SAS) |
+| "为什么不考虑预训练模型?" | 从头训练的场景需求 (域不匹配时) |
+| "SAS 准确率低于 RandAugment?" | 稳定性价值、Lower Bound 指标 |
+| "RandAugment 35.30% 怎么回事?" | 验证集过拟合解释 |
+
+---
+
+## 重要链接
+
+- **ICIP 2026 主页**: https://2026.ieeeicip.org/
+- **Author Kit**: https://2026.ieeeicip.org/author-kit/
+- **PDF eXpress**: https://ieee-pdf-express.org/ (Conference ID: **61757X**)
+- **投稿系统**: https://icip2026.exordo.com
