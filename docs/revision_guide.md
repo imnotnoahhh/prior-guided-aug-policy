@@ -47,7 +47,7 @@
 
 ### 2. 复现性底线 ✅
 
-训练配置已完整包含于论文中 (5-fold CV, 200 epochs, SGD, etc.)
+训练配置已完整包含于论文中 (5 random splits, 200 epochs, SGD, etc.)
 
 ### 3. 红旗问题 (文字部分) ✅
 
@@ -64,7 +64,7 @@
 
 | 问题 | 修复方案 |
 |------|----------|
-| 统计口径不清 | ✅ Caption 明确 "5-fold CV with fixed seed (42)" |
+| 统计口径不清 | ✅ Caption 明确 "5 independent random splits with fixed seed (42)" |
 | Table 缺失列 | ✅ 补齐 NoAug/Cutout 的 Min Acc |
 | Min Acc "反打脸" | ✅ 移除 SAS Min Acc 加粗，不再声称下界优势 |
 | 话术调整 | ✅ 强调 "predictability" 而非绝对分数 |
@@ -127,7 +127,7 @@ Our contributions are threefold:
     \item \textbf{Methodology:} We propose SAS (Stability-aware Augmentation Search), 
     a three-phase protocol that explicitly penalizes variance using a 
     lower-bound criterion (Mean $-$ Std) for robust policy selection (Section 3).
-    \item \textbf{Validation:} Through 5-fold cross-validation, multi-seed evaluation, 
+    \item \textbf{Validation:} Through 5 independent random splits, multi-seed evaluation, 
     and semantic preservation analysis (SSIM/LPIPS), we provide systematic evidence 
     that single-operation policies offer the best reliability in data-scarce regimes 
     (Section 4, Appendix).
@@ -275,7 +275,7 @@ python scripts/analyze_table1_stats.py
 - 数据集: CIFAR-100
 - Shot数: `[20, 50, 100, 200]` (已删除 10-shot)
 - 方法: Baseline, RandAugment, SAS
-- 评估: 5-fold CV
+- 评估: 5 independent random splits
 - **顺手记录**: epoch time / img/s (训练效率证据)
 
 **渐进式运行策略**:
@@ -304,7 +304,7 @@ python scripts/run_shot_sweep.py --shots 50,20 --folds 0 --epochs 50 \
 python scripts/plot_shot_sweep.py --output_dir outputs_step2
 
 # Step 3: 完整版 (只有 Step 2 有意义才跑)
-python scripts/run_shot_sweep.py --shots 20,50,200 --folds 0,1,2,3,4 --epochs 200 \
+python scripts/run_shot_sweep.py --shots 20,50,100,200 --folds 0,1,2,3,4 --epochs 200 \
   --methods Baseline,RandAugment,SAS --output_dir outputs/shot_sweep_final \
   --batch_size 128 --num_workers 0 --no_early_stop --sas_config ColorJitter,0.2575,0.4239 \
   --log_file outputs/shot_sweep_final/run.log

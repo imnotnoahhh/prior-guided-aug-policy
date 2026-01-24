@@ -1,0 +1,59 @@
+% Supplemental Material for ICIP-2026 submission
+% This document contains additional implementation details, ablations, and experiments
+\documentclass{article}
+\usepackage{spconf,amsmath,graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{xurl}
+
+\title{Supplemental Material: When More is Not Better}
+
+\begin{document}
+\maketitle
+
+\section{Implementation Details}
+\label{sec:implementation}
+
+\subsection{Training Setup}
+All experiments are conducted on CIFAR-100 subsampled to 100 images per class (10,000 images total). We use a standard ResNet-18 backbone trained from scratch.
+\begin{itemize}
+    \item \textbf{Optimizer}: SGD with Momentum (0.9).
+    \item \textbf{Learning Rate}: Initial LR 0.1, with Cosine Annealing scheduler (5 warmup epochs).
+    \item \textbf{Weight Decay}: 1e-2.
+    \item \textbf{Batch Size}: 128.
+    \item \textbf{Epochs}: 200.
+    \item \textbf{Label Smoothing}: 0.1.
+\end{itemize}
+
+\subsection{Augmentation Hyperparameters}
+\begin{itemize}
+    \item \textbf{Baseline}: RandomCrop (32$\times$32, padding=4) + RandomHorizontalFlip ($p=0.5$).
+    \item \textbf{Cutout}: Number of holes=1, Length=16.
+    \item \textbf{RandAugment}: $N{=}2$, $M{=}9$ (torchvision implementation).
+    \item \textbf{SAS}: Search Space $K=8$ operations. Magnitude $m \in [0, 1]$ (continuous), Probability $p \in [0, 1]$ (continuous).
+\end{itemize}
+
+
+\section{Reproducibility Details}
+\label{sec:repro}
+
+Code will be made publicly available upon acceptance. Full training hyperparameters are provided in Section~\ref{sec:implementation}.
+
+\section{Additional Experiments}
+\label{sec:experiments}
+
+\subsection{Shot Scaling Under Repeated Subsampling Trials}
+\label{sec:shot_sweep}
+
+We provide an additional shot scaling study to characterize how augmentation behaviors change as data availability varies. This study uses repeated class-wise subsampling trials (subsets may overlap across trials), which is different from the disjoint StratifiedKFold protocol used in the main experiments. Therefore, we use this study to analyze scaling trends and failure modes rather than to replace the main results.
+
+Figure~\ref{fig:shot_sweep} shows performance across 20, 50, 100, and 200 samples per class. Two patterns emerge. First, in very low-shot regimes (e.g., 20-shot), strong multi-operation augmentation can make optimization difficult and lead to uniformly low accuracy, indicating an optimization-limited collapse rather than reliable generalization. Second, as the number of samples per class increases, all methods improve and the performance gaps narrow. Overall, this study highlights a regime boundary where augmentation complexity becomes actively harmful; it complements the main experiments by illustrating scaling trends and failure modes under a different evaluation protocol.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.0\linewidth]{fig_shot_sweep_combined.png}
+    \caption{\textbf{Shot scaling study.} Different from the main experiments (disjoint StratifiedKFold), this sweep uses repeated subsampling trials and is intended to study scaling trends and failure modes, not to replace the main protocol. Note that a smaller std may coincide with consistently low accuracy in extreme low-shot settings, reflecting optimization collapse rather than robustness.}
+    \label{fig:shot_sweep}
+\end{figure}
+
+\end{document}

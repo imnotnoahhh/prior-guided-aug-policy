@@ -80,7 +80,7 @@ python scripts/run_shot_sweep.py --shots 50,20 --folds 0 --epochs 50 \
 python scripts/plot_shot_sweep.py --output_dir outputs_step2
 
 # Step 3: 完整版 (只有 Step 2 有意义才跑)
-python scripts/run_shot_sweep.py --shots 20,50,200 --folds 0,1,2,3,4 --epochs 200 \
+python scripts/run_shot_sweep.py --shots 20,50,100,200 --folds 0,1,2,3,4 --epochs 200 \
   --methods Baseline,RandAugment,SAS --output_dir outputs/shot_sweep_final \
   --batch_size 128 --num_workers 0 --no_early_stop --sas_config ColorJitter,0.2575,0.4239 \
   --log_file outputs/shot_sweep_final/run.log
@@ -113,7 +113,7 @@ python scripts/generate_paper_figures.py
 该脚本会自动读取 `outputs/` 下的各类 CSV 结果，生成：
 - `fig1_complexity_gap.png`: Accuracy-Stability Trade-off
 - `fig4_search_space_colorjitter.png`: Phase A 搜索空间热力图
-- `fig5_stability_boxplot.png`: Phase D 稳定性箱线图 (5-fold)
+- `fig5_stability_boxplot.png`: Phase D 稳定性箱线图 (5 random splits)
 - `fig6_cifar10_generalization.png`: 泛化实验对比
 - `fig7_ablation_magnitude.png`: Magnitude 消融分析
 - `fig8_destructiveness.png`: 语义保真度分析 (SSIM/LPIPS)
