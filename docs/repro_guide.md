@@ -4,6 +4,48 @@
 - 环境：`conda env create -f environment.yml && conda activate rethinking_aug`。如已创建，`conda env update -f environment.yml` 保持同步。
 - 数据：自动下载 CIFAR-100 至 `./data`，若离线，请预放置官方二进制文件。
 
+### 数据分割详解
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  CIFAR-100 完整训练集: 50,000 张 (100 类 × 500 张/类)       │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+              ┌───────────────────────────────────┐
+              │  Stratified 5-Fold 分层划分       │
+              │  (保证每个 Fold 类别分布一致)      │
+              └───────────────────────────────────┘
+                              │
+        ┌─────────┬─────────┬─┴─────────┬─────────┐
+        ▼         ▼         ▼           ▼         ▼
+    ┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐
+    │Fold 0 │ │Fold 1 │ │Fold 2 │ │Fold 3 │ │Fold 4 │
+    │10,000 │ │10,000 │ │10,000 │ │10,000 │ │10,000 │
+    │100/类 │ │100/类 │ │100/类 │ │100/类 │ │100/类 │
+    └───────┘ └───────┘ └───────┘ └───────┘ └───────┘
+        │
+        ▼ (以 Fold 0 为例)
+    ┌─────────────────────────────────────────┐
+    │  Fold 内 90/10 分割                      │
+    │                                         │
+    │  ┌─────────────────┐  ┌───────────────┐ │
+    │  │   训练集 (90%)   │  │  验证集 (10%) │ │
+    │  │   9,000 张       │  │   1,000 张    │ │
+    │  │   90 张/类       │  │   10 张/类    │ │
+    │  └─────────────────┘  └───────────────┘ │
+    └─────────────────────────────────────────┘
+                │
+                ▼
+    论文中称为 "~90-shot" (每类约 90 个训练样本)
+```
+
+**关键点**:
+- 论文中 "~90-shot" 指的是**训练样本数**，不是 Fold 总样本数
+- 5 个 Fold 的数据**互不重叠**，用于交叉验证
+- 搜索阶段 (Phase A/B/C) 只用 Fold 0
+- 最终评估 (Phase D) 用全部 5 个 Fold，汇报 Mean ± Std
+
 ## 逐阶段命令（单 GPU）
 ```bash
 bash scripts/train_single_gpu.sh
@@ -25,22 +67,22 @@ bash scripts/train_single_gpu.sh
 ## 补充实验复现 (Paper Revision)
 为了回应审稿人关于“破坏性”和“公平性”的质疑，请运行以下脚本：
 
-### 1. 破坏性分析 (Semantic Preservation)
-计算 LPIPS/SSIM 指标，验证语义保真度：
+### 1. 破坏性分析 (Semantic Preservation) ✅ 论文中使用
+计算 LPIPS/SSIM 指标，验证语义保真度（论文 Fig.8, Section IV）：
 ```bash
 python scripts/calculate_destructiveness.py
 ```
 Output: `outputs/destructiveness_metrics.csv`
 
-### 2. 稳定性验证 (Zero Variance Verification)
+### 2. 稳定性验证 (Zero Variance Verification) ❌ 论文中未使用
 在 3 个随机种子下验证 "0 方差" 现象：
 ```bash
 python scripts/run_stability_check.py
 ```
 Output: `outputs/stability_seeds_results.csv`
 
-### 3. 公平性对比 (Tuned RandAugment)
-搜索最佳 RandAugment 参数 (N, M) 并进行全量验证：
+### 3. 公平性对比 (Tuned RandAugment) ✅ 论文中使用
+搜索最佳 RandAugment 参数 (N, M) 并进行全量验证（论文 Section IV, 35.30%）：
 ```bash
 # 步骤 1: 搜索最佳参数
 python scripts/run_tuned_randaugment.py
@@ -52,8 +94,8 @@ python scripts/run_final_tuned_ra.py
 
 
 
-### 4. 搜索流程消融 (Search Workflow Ablation)
-验证各搜索阶段的必要性：
+### 4. 搜索流程消融 (Search Workflow Ablation) ✅ 论文中使用
+验证各搜索阶段的必要性（论文 Table III）：
 ```bash
 python scripts/run_search_ablation.py
 ```
@@ -61,22 +103,22 @@ python scripts/run_search_ablation.py
 
 Output: `outputs/search_ablation_results.csv`
 
-### 5. CIFAR-10 泛化实验 (Cross-dataset Generalization)
-在 CIFAR-10 (50-shot) 上验证泛化性：
+### 5. CIFAR-10 泛化实验 (Cross-dataset Generalization) ❌ 论文中未使用
+在 CIFAR-10 (50-shot) 上验证泛化性（因结果异常已删除）：
 ```bash
 python scripts/run_cifar10_50shot.py
 ```
 Output: `outputs/cifar10_50shot_results.csv`
 
-### 6. Magnitude 消融 (Ablation: Fixed p=0.5)
-验证 Magnitude 搜索的必要性：
+### 6. Magnitude 消融 (Ablation: Fixed p=0.5) ✅ 论文中使用
+验证 Magnitude 搜索的必要性（论文 Fig.10）：
 ```bash
 python scripts/run_ablation_fixed_p.py
 ```
 Output: `outputs/ablation/ablation_p0.5_*.csv`
 
-### 7. Table 1 统计分析
-生成扩展统计指标 (Min Acc, Lower Bound, 95% CI)：
+### 7. Table 1 统计分析 ✅ 论文中使用（部分）
+生成扩展统计指标（论文 Table II 使用 CV, Width）：
 ```bash
 python scripts/analyze_table1_stats.py
 ```
@@ -89,8 +131,8 @@ nohup bash scripts/train_single_gpu.sh > logs/full_run.log 2>&1 &
 tail -f logs/full_run.log
 ```
 
-## Shot Sweep 实验 (Trend Analysis)
-验证 SAS 在不同样本量下的表现趋势：
+## Shot Sweep 实验 (Trend Analysis) ❌ 论文中未使用
+验证 SAS 在不同样本量下的表现趋势（备用数据，未纳入 EUSIPCO 论文）：
 
 **重要配置**:
 - 每个 Step 使用独立 output_dir，避免结果污染
@@ -184,31 +226,7 @@ Output:
 
 ---
 
-## 提交检查清单 (ICIP 2026)
 
-### 格式合规检查
-
-| 要求 | 规格 | 检查 |
-|------|------|------|
-| 技术内容 | ≤ 5页 | [ ] |
-| 第6页 | 仅参考文献 | [ ] |
-| 纸张尺寸 | US Letter (8.5" × 11") | [ ] |
-| 字体大小 | ≥ 9pt (全文包括图注) | [ ] |
-| 页码 | **不要添加页码** | [ ] |
-
-### PDF eXpress 验证
-
-提交前**必须**通过 IEEE PDF eXpress 验证：
-- 网址: https://ieee-pdf-express.org/account/login
-- **Conference ID: 61757X**
-- 创建账户 → 上传 PDF → 修复问题 → 获得合规版本
-
-### 双盲版检查
-
-- [ ] 作者栏为空或显示 "Anonymous Authors"
-- [ ] 无 GitHub 链接、无个人主页
-- [ ] PDF 元数据已清理
-- [ ] 文件名不含个人信息 (建议: `ICIP2026_submission.pdf`)
 
 ### 图片数据验证
 
@@ -225,30 +243,19 @@ Output:
 python scripts/generate_paper_figures.py
 ```
 
-### ORCID 要求
-
-> **所有作者必须提供 ORCID**，否则无法提交。
-> 注册网址: https://orcid.org/register
-
----
 
 ## Rebuttal 准备
 
-ICIP 2026 有 Rebuttal 环节。常见质疑及回应：
+EUSIPCO 2026 常见质疑及回应：
 
 | 可能质疑 | 准备的回应 |
 |----------|------------|
-| "为什么不用更大的数据集验证?" | 小样本场景的实际应用背景 (医学影像等) |
-| "ColorJitter 是否只是巧合?" | 搜索消融实验结果 (Phase A only vs Full SAS) |
-| "为什么不考虑预训练模型?" | 从头训练的场景需求 (域不匹配时) |
-| "SAS 准确率低于 RandAugment?" | 稳定性价值、Lower Bound 指标 |
-| "RandAugment 35.30% 怎么回事?" | 验证集过拟合解释 |
+| **"SAS 准确率比 RandAugment 低，为什么要用它？"** | 论文核心论点是 predictability，不是 accuracy。引用 utility function: $U = \mu - \lambda\sigma$，当 $\lambda > 1.28$ 时 SAS 更优。强调 one-shot training 场景。 |
+| **"CV 差异 (2.77% vs 1.91%) 真的显著吗？"** | 承认 n=5 样本量小，Wilcoxon p=0.19 不显著。但强调方向一致性：Std、Width、CV 三个指标全部改善。 |
+| **"为什么只用 ColorJitter？"** | 这是搜索结果，不是人为选择。Table III 展示 Phase A→B→C 的消融过程。搜索收敛到单操作体现了"奥卡姆剃刀"原则。 |
+| **"SSIM/LPIPS 能解释准确率差异吗？"** | 改为"sensitivity to artifacts"表述，避免过强因果声称。这是 correlation 而非 causation。 |
+| **"为什么不用预训练模型？"** | 研究场景是"从头训练"，如医学影像等领域预训练模型不适用。这是明确的 scope limitation。 |
+| **"Tuned RA 只跑了 10 个配置够吗？"** | 承认预算有限，但结果已经说明问题：即使最佳配置也只有 35.30%，远低于默认 RA (42.24%)。 |
+| **"~90-shot 的表述是否准确？"** | 每个 Fold 100 样本/类，90/10 分割后训练集 90/类。用 $\sim$ 表示近似值是合理的。 |
 
 ---
-
-## 重要链接
-
-- **ICIP 2026 主页**: https://2026.ieeeicip.org/
-- **Author Kit**: https://2026.ieeeicip.org/author-kit/
-- **PDF eXpress**: https://ieee-pdf-express.org/ (Conference ID: **61757X**)
-- **投稿系统**: https://icip2026.exordo.com

@@ -69,7 +69,7 @@ phase, op_name, magnitude, probability, seed, fold_idx, val_acc, val_loss, top5_
 
 ## 补充实验输出格式 (Supplementary)
 
-### CIFAR-10 Generalization (`outputs/cifar10_50shot_results.csv`)
+### CIFAR-10 Generalization (`outputs/cifar10_50shot_results.csv`) ❌ 论文中未使用
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -154,7 +154,7 @@ phase, op_name, magnitude, probability, seed, fold_idx, val_acc, val_loss, top5_
 | `95% CI High` | 95% 置信区间上界 |
 | `Fold Values` | 各 fold 准确率列表 |
 
-### Shot Sweep Results (`outputs/shot_sweep_results.csv`)
+### Shot Sweep Results (`outputs/shot_sweep_results.csv`) ❌ 论文中未使用
 不同样本量下的实验原始结果：
 
 | 字段 | 说明 |
@@ -176,7 +176,7 @@ phase, op_name, magnitude, probability, seed, fold_idx, val_acc, val_loss, top5_
 | `timestamp` | ISO 8601 时间戳 |
 | `error` | 错误信息 |
 
-### Shot Sweep Summary (`outputs/shot_sweep_summary.csv`)
+### Shot Sweep Summary (`outputs/shot_sweep_summary.csv`) ❌ 论文中未使用
 不同样本量下的汇总统计：
 
 | 字段 | 说明 |

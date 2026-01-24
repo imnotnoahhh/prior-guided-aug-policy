@@ -1,6 +1,6 @@
 # Research Plan: When More is Not Better: Rethinking Data Augmentation under Small-Sample Regimes
 
-**Target**: Academic Conference (WACV / BMVC / ICIP Level)
+**Target**: EUSIPCO 2026
 **Dataset**: CIFAR-100 (Subsampled: 20% per class, Stratified)
 
 ---
@@ -9,7 +9,7 @@
 
 ### 1.1 研究目标
 
-在极少样本（每类 100 张）限制下，探究**增强策略复杂度与模型性能**的关系。通过先验引导的搜索流程，验证简单策略在低数据体制下的优越性。
+在极少样本（每类 ~90 张训练样本）限制下，探究**增强策略复杂度与模型性能**的关系。通过先验引导的搜索流程，验证简单策略在低数据体制下的优越性。
 
 *   **核心假设 (Simplicity Hypothesis)**: 在小样本场景下，**精选的单一操作 (Optimal Single-Op)** 足以逼近 SOTA (RandAugment) 的性能，且具备更高的稳定性（更低方差）和可解释性。复杂的组合增强策略（Multi-Op）往往会导致收益递减甚至过拟合。
 *   **研究定位**: 我们不追求绝对的 SOTA 准确率（Accuracy），而是追求 **"Accuracy-Stability-Complexity"** 三者的最佳平衡（Pareto Optimal）。
@@ -154,7 +154,7 @@ MUTUAL_EXCLUSION = {
 
 | 实验 | 描述 | 目的 |
 |---|---|---|
-| **CIFAR-10 Generalization** | 50-shot setting, 5-fold, 200 epochs | 证明方法不局限于 CIFAR-100，具备通用鲁棒性 |
+| **CIFAR-10 Generalization** | 50-shot setting, 5-fold, 200 epochs | ❌ 论文中未使用（结果异常已删除） |
 | **Ablation (Fixed Probability)** | 固定 p=0.5，搜索 m | 证明搜索 Magnitude 的必要性 (Sensitivity Analysis) |
 | **Destructiveness Analysis** | Calculate SSIM/LPIPS metrics | 验证增强策略的语义保真度 (Semantic Preservation) |
 | **Stability Verification** | 3 Random Seeds (42, 100, 2024) | 验证 "0 方差" 现象的复现性 |

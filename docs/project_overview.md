@@ -2,11 +2,11 @@
 
 ## 项目概述
 
-**研究目标**: 在低数据体制（每类 100 张 - Small-Sample Regime）下，系统评估数据增强策略的**复杂度-收益曲线**，并提出一种高效的搜索流程。
+**研究目标**: 在低数据体制（每类 ~90 张训练样本 - Small-Sample Regime）下，系统评估数据增强策略的**复杂度-收益曲线**，并提出一种高效的搜索流程。
 
 **核心假设 (Simplicity Principle)**: 多种增强操作的叠加（Multi-Op）在小样本场景下边际效应递减。相比于盲目堆叠复杂度的 RandAugment，**精准搜索的单一操作 (Optimal Single-Op)** 能以极低的代价获得相当的性能，且具备显著的**稳定性优势** (Lower Variance)。
 
-**目标期刊/会议**: WACV / BMVC / ICIP 级别
+**目标会议**: EUSIPCO 2026
 
 ---
 
@@ -17,7 +17,7 @@
 | 项目 | 配置 |
 |------|------|
 | **数据集** | CIFAR-100 |
-| **子采样** | 每类 20%（约 100 张/类） |
+| **子采样** | 每类 20%（每 Fold 100 张/类，训练时 90 张/类） |
 | **总样本数** | 10,000 张/Fold |
 | **划分方式** | 5-Fold 分层划分 |
 | **单 Fold 划分** | Train 9,000 / Val 1,000 |
@@ -283,7 +283,7 @@ P(至少一个) = 1 - (1-0.04)(1-0.47) = 49% ≈ 50% ✓
 
 | 实验 | 描述 | 目的 |
 |---|---|---|
-| **CIFAR-10 Generalization** | 50-shot setting, 5-fold, 200 epochs | 证明方法不局限于 CIFAR-100，具备通用鲁棒性 |
+| **CIFAR-10 Generalization** | 50-shot setting, 5-fold, 200 epochs | ❌ 论文中未使用（结果异常已删除） |
 | **Ablation (Fixed Probability)** | 固定 p=0.5，搜索 m | 证明搜索 Magnitude 的必要性 (Sensitivity Analysis) |
 | **Destructiveness Analysis** | Calculate SSIM/LPIPS metrics | 验证增强策略的语义保真度 (Semantic Preservation) |
 | **Stability Verification** | 3 Random Seeds (42, 100, 2024) | 验证 "0 方差" 现象的复现性 |
