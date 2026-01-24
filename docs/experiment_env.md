@@ -10,7 +10,7 @@
 |------|------|
 | **GPU** | NVIDIA A10 |
 | **CUDA** | 12.8 |
-| **Python** | 3.14.2 (conda: pga) |
+| **Python** | 3.14.2 (conda: rethinking_aug) |
 
 ---
 
@@ -197,7 +197,7 @@ CUDA_VISIBLE_DEVICES=0 python main_phase_d.py | tee logs/phase_d.log
 CUDA_VISIBLE_DEVICES=0 python main_phase_d.py --dry_run
 
 # 只运行特定方法
-CUDA_VISIBLE_DEVICES=0 python main_phase_d.py --methods Baseline,Ours_optimal
+CUDA_VISIBLE_DEVICES=0 python main_phase_d.py --methods Baseline,SAS
 
 # 只运行特定 folds
 CUDA_VISIBLE_DEVICES=0 python main_phase_d.py --folds 0,1,2
@@ -211,9 +211,9 @@ CUDA_VISIBLE_DEVICES=0 python main_phase_d.py --folds 0,1,2
 | **Baseline-NoAug** | 无增强消融 | 仅 ToTensor |
 | **RandAugment** | 自动增强 SOTA | N=2, M=9 |
 | **Cutout** | 遮挡增强 SOTA | n_holes=1, length=16 |
-| **Best_SingleOp** | 单操作最优 | Phase B 最佳单操作 |
-| **Ours_p1** | 消融对照 | 策略使用 probability_original |
-| **Ours_optimal** | 最终方法 | 策略使用 probability_adjusted |
+| **SAS** | 最终方法 (单操作最优) | Phase B 最佳单操作 ColorJitter |
+| **SAS_p1** | 消融对照 | 固定 p=1.0 |
+| **Best_SingleOp** | SAS 别名 | 与 SAS 相同 |
 
 ### 输出文件
 

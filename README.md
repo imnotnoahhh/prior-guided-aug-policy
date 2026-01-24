@@ -34,9 +34,9 @@ Experiments conducted on CIFAR-100 (100 samples/class), ResNet-18, 5-Fold Cross-
 | Baseline (S0) | 39.90 | 1.01 | Low | Basic Crop/Flip |
 | **RandAugment** (N=2,M=9) | **42.24** | 1.17 | High | **Unstable** (High Variance) |
 | **Tuned RandAugment** (N=1,M=2)| 35.30 | N/A | Low | Tuning fails (Underfitting) |
-| **Single-Op (ColorJitter)** | 40.74 | **0.78** | **Low** | **Most Stable and Reliable** |
+| **SAS (ColorJitter)** | 40.74 | **0.78** | **Low** | **Most Stable and Reliable** |
 
-### Why Single-Op? / Why single-operation policy?
+### Why SAS? / 为什么选择 SAS?
 1.  **Zero Variance in Stability Check**: Verified to converge consistently (50.00% ± 0.00%) across 3 random seeds in 50-shot scenarios.
 2.  **High Semantic Fidelity**: LPIPS score (0.091) is comparable to baseline, unlike RandAugment (0.124) which distorts images heavily.
 3.  **Efficiency**: Search cost is only ~4 GPU hours, finding the optimal policy without expensive reinforcement learning.
@@ -80,7 +80,7 @@ python scripts/calculate_destructiveness.py
 python scripts/run_stability_check.py
 
 # Verify Tuned RandAugment Failure (Fairness)
-python scripts/run_tuning_randaugment.py  # Search
+python scripts/run_tuned_randaugment.py   # Search
 python scripts/run_final_tuned_ra.py      # Validation
 
 # Verify Policy Selection (Figure 2)

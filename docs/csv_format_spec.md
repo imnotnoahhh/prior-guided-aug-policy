@@ -92,6 +92,26 @@ phase, op_name, magnitude, probability, seed, fold_idx, val_acc, val_loss, top5_
 ### Ablation Study (`outputs/ablation/ablation_p0.5_raw.csv`)
 复用统一字段定义 (`PhaseB` 格式)，但在 `phase` 字段填入 "PhaseB" (复用代码逻辑) 或 "Ablation"。
 
+### Search Workflow Ablation (`outputs/search_ablation_results.csv`)
+
+用于验证 ASHA 调优 (Phase B) 的必要性。
+
+| 字段 | 说明 |
+|------|------|
+| `method` | PhaseA_Only (仅 Sobol 筛选，无 ASHA 调优) |
+| `op_name` | 操作名 (Phase A 最佳: RandomPerspective) |
+| `magnitude` | 强度值 |
+| `probability` | 应用概率 |
+| `fold_idx` | Fold 索引 (0-4) |
+| `val_acc` | 验证集准确率 (%) |
+| `best_epoch` | 最佳 epoch |
+| `timestamp` | 时间戳 |
+
+**重要说明**：
+- 此文件**仅存储 Phase A only** 的实验结果（使用 Sobol 筛选的最佳配置，无 ASHA 调优）
+- **Full SAS** 对照组数据复用 `phase_d_results.csv` 中的 `Best_SingleOp`（即完整 SAS 流程的输出）
+- 论文 Table 5 中：Phase A only = 35.80% ± 1.65%，Full SAS = 40.74% ± 0.78%
+
 ### Ablation Summary (`outputs/ablation/ablation_p0.5_summary.csv`)
 用于论文绘图的聚合数据：
 

@@ -138,7 +138,7 @@ MUTUAL_EXCLUSION = {
 3. 返回 current_policy
 ```
 
-### 3.5 Phase D: SOTA 对比 (Benchmark Comparison)
+### 3.4 Phase D: SOTA 对比 (Benchmark Comparison)
 
 **目标**: 证明方法优于或接近现有 SOTA
 
@@ -146,9 +146,9 @@ MUTUAL_EXCLUSION = {
 |------|------|
 | **验证** | 5-Fold 交叉验证 |
 | **训练** | 200 epochs/fold |
-| **方法** | Baseline, Baseline-NoAug, RandAugment, Cutout, Best_SingleOp, Ours_p1, Ours_optimal (7 个) |
+| **方法** | Baseline, Baseline-NoAug, RandAugment, Cutout, SAS, SAS_p1, Best_SingleOp (7 个) |
 
-### 3.6 补充实验 (Supplementary Experiments)
+### 3.5 补充实验 (Supplementary Experiments)
 
 **目标**: 验证泛化性 (Generalization) 和设计必要性 (Necessity)
 

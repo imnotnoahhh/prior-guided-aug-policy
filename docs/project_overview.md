@@ -230,23 +230,20 @@ P(至少一个) = 1 - (1-0.04)(1-0.47) = 49% ≈ 50% ✓
 ```json
 {
   "version": "current",
-  "p_any_target": 0.5,
+  "phase": "PhaseC",
+  "strategy": "greedy_validated",
+  "n_ops": 1,
   "ops": [
     {
-      "name": "GaussianNoise",
-      "magnitude": 0.34,
-      "probability_original": 0.76,
-      "probability_adjusted": 0.47
-    },
-    {
-      "name": "RandomErasing",
-      "magnitude": 0.24,
-      "probability_original": 0.34,
-      "probability_adjusted": 0.04
+      "name": "ColorJitter",
+      "magnitude": 0.2575,
+      "probability": 0.4239
     }
   ]
 }
 ```
+
+> **注意**: 由于 Phase C 贪心搜索自动拒绝了额外操作（策略坍缩），最终策略通常只包含单一操作。
 
 **输出文件**:
 - `outputs/phase_c_history.csv` - 每次尝试的记录
@@ -271,24 +268,16 @@ P(至少一个) = 1 - (1-0.04)(1-0.47) = 49% ≈ 50% ✓
 | **Baseline-NoAug** | 无增强消融 | 仅 ToTensor |
 | **RandAugment** | 自动增强 SOTA | N=2, M=9 |
 | **Cutout** | 遮挡增强 SOTA | n_holes=1, length=16 |
-| **Best_SingleOp** | 单操作最优 | Phase B 最佳单操作 |
-| **Ours_p1** | 消融对照 | 策略使用 probability_original |
-| **Ours_optimal** | 最终方法 | 策略使用 probability_adjusted |
+| **SAS** | 最终方法 (单操作最优) | Phase B 最佳单操作 ColorJitter |
+| **SAS_p1** | 消融对照 | 固定 p=1.0 |
+| **Best_SingleOp** | SAS 别名 | 与 SAS 相同 |
 
 **输出文件**:
 - `outputs/phase_d_results.csv` - 每个 (method, fold) 的结果
 - `outputs/phase_d_summary.csv` - Mean ± Std 汇总（用于论文表格）
-- `outputs/phase_d_summary.csv` - Mean ± Std 汇总（用于论文表格）
-- `outputs/checkpoints/phase_d_fold{0-4}_best.pth` - Ours_optimal 的 5-fold 模型
+- `outputs/checkpoints/phase_d_fold{0-4}_best.pth` - SAS 的 5-fold 模型
 
-### 3.6 Phase E: 最终测试集评估 (Test Set Evaluation)
-
-**目标**: 使用官方 Test Set (10k images) 验证最终策略，避免数据泄露。
-
-- 脚本: `scripts/evaluate_final_policy.py`
-- 输出: `outputs/test_set_results.csv` (用于填补论文 Table 1 的最终一列)
-
-### 3.7 补充实验 (Supplementary Experiments)
+### 3.5 补充实验 (Supplementary Experiments)
 
 **目标**: 验证泛化性 (Generalization) 和设计必要性 (Necessity)
 
@@ -307,30 +296,31 @@ P(至少一个) = 1 - (1-0.04)(1-0.47) = 49% ≈ 50% ✓
 ### 4.1 性能排名
 
 ```
-Ours_optimal ≥ RandAugment > Baseline > Baseline-NoAug
+RandAugment > SAS ≈ Baseline (准确率)
+SAS > RandAugment > Baseline (稳定性)
 ```
 
 **解读**:
-- `Ours_optimal ≥ RandAugment`: 我们的方法应该接近或超过通用 SOTA
-- `RandAugment > Baseline`: SOTA 方法优于基础增强
-- `Baseline > Baseline-NoAug`: 基础增强有明显价值
+- `RandAugment > SAS`: RandAugment 略高 (+1.5%)，但方差大 50%
+- `SAS > Baseline`: SAS 优于基础增强且方差最低
+- **核心发现**: SAS 在准确率-稳定性权衡中是最优选择
 
 ### 4.2 消融验证
 
 | 对比 | 验证目标 |
 |------|----------|
-| `Ours_optimal > Ours_p1` | 概率优化 + magnitude 调整的价值 |
-| `Ours_optimal > Best_SingleOp` | 多操作组合的价值 |
-| `Ours_optimal > Baseline` | 搜索策略的整体价值 |
+| `SAS > SAS_p1` | 概率优化的价值 |
+| `SAS > Baseline` | 搜索策略的整体价值 |
+| `Full SAS > Phase A only` | ASHA 调优的必要性 |
 | `Baseline > Baseline-NoAug` | 基础增强的价值 |
 
 ### 4.3 论文核心图表
 
-1. **Performance Table**: Ours vs. RandAugment vs. Baseline (Mean ± Std)
+1. **Performance Table**: SAS vs. RandAugment vs. Baseline (Mean ± Std)
 2. **2D Heatmaps**: 展示 (m, p) 联合效应
 3. **Ablation Study**: p=1.0 vs p=optimal 对比表格
-4. **Efficiency Plot**: 搜索耗时 vs. 准确率
-5. **Case Study**: 展示被 P_final 修正的样本
+4. **Stability Boxplot**: 5-fold 方差对比
+5. **Failure Cases**: RandAugment 语义破坏示例
 
 ---
 
@@ -365,7 +355,7 @@ Ours_optimal ≥ RandAugment > Baseline > Baseline-NoAug
 ## 7. 核心创新点
 
 1.  **Accuracy-Stability Trade-off Discovery**: Revealed diminishing returns of complex augmentation (RandAugment) compared to optimal single-operation policy in small-sample regimes.
-2.  **Stability-First Strategy**: 提出将“稳定性”（低方差）作为小样本学习的关键指标，Ours 方法在保持竞争力的同时显著降低了模型方差（0.78 vs 1.17）。
+2.  **Stability-First Strategy**: 提出将“稳定性”（低方差）作为小样本学习的关键指标，SAS 方法在保持竞争力的同时显著降低了模型方差（0.78 vs 1.17）。
 3.  **Prior-Guided Efficiency**: 展示了结合人类先验（2D 搜索空间）和 ASHA 早停的轻量级搜索流程，如何能快速定位到那个“性价比”最高的单一操作。
 4.  **Auto-Regularization**: Phase C 的贪心算法自动拒绝了额外的复杂操作，这种“策略坍缩”实际上是一种**自动正则化**行为，避免了过拟合。
 5.  **No-NAS 约束**: 证明了在固定架构下，仅通过精准的数据形态调整（Data-Centric AI）即可获得显著收益。
@@ -384,15 +374,18 @@ outputs/
 ├── phase_c_final_policy.json     # Phase C 最终策略
 ├── phase_d_results.csv           # Phase D 原始结果
 ├── phase_d_summary.csv           # Phase D 汇总结果 (论文用)
-└── checkpoints/
-    ├── baseline_best.pth           # Baseline 最佳模型
-    ├── phase_c_*.pth               # Phase C 策略 checkpoints
-    └── phase_d_fold{0-4}_best.pth  # 最终 5-fold 模型
 ├── ablation/                     # 消融实验结果
+│   ├── ablation_p0.5_raw.csv
+│   └── ablation_p0.5_summary.csv
 ├── cifar10_50shot_results.csv    # CIFAR-10 泛化实验结果
 ├── destructiveness_metrics.csv   # 破坏性分析结果 (LPIPS/SSIM)
 ├── stability_seeds_results.csv   # 稳定性验证结果
-└── tuned_randaugment_results.csv # Tuned RandAugment 搜索结果
+├── tuned_randaugment_results.csv # Tuned RandAugment 搜索结果
+├── search_ablation_results.csv   # 搜索流程消融结果
+├── table1_extended.csv           # Table 1 扩展统计
+└── checkpoints/                  # 模型权重 (通过 GitHub Release 下载)
+    ├── baseline_best.pth
+    └── phase_d_fold{0-4}_best.pth
 ```
 
 ---
