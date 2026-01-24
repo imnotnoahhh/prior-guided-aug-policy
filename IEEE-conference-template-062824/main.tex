@@ -1,0 +1,290 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+% Template version as of 6/27/2024
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{xurl}
+\usepackage[pdfauthor={},pdftitle={},pdfsubject={},pdfkeywords={}]{hyperref}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{Rethinking Data Augmentation for Small-Sample Learning: A Stability-Aware Search}
+
+\author{\IEEEauthorblockN{Fuyao Qin}
+\IEEEauthorblockA{\textit{International Department} \\
+\textit{High School Attached to Beijing Jiaotong University}\\
+Beijing, China \\
+qinfuyaoo@icloud.com}
+}
+
+\maketitle
+
+\begin{abstract}
+Complex data augmentation policies often increase model complexity by composing multiple operations. We show that in small-sample regimes, this complexity introduces substantial performance instability across data splits, undermining reliability in data-scarce applications (e.g., medical imaging). On CIFAR-100 with 100 samples per class, we observe a fundamental trade-off: while RandAugment attains higher mean accuracy (42.24\% vs.\ 40.74\%), it exhibits a significantly higher Coefficient of Variation (CV=2.77\% vs.\ 1.91\%), indicating a less stable estimation of true model performance. To address this, we propose \textbf{SAS} (Stability-aware Augmentation Search), a three-phase protocol that explicitly penalizes instability during augmentation selection. While aggressive augmentation strategies maximize expected accuracy at the cost of high variance, SAS prioritizes predictive consistency. By explicitly penalizing instability, SAS offers a \textbf{predictable regularization profile} essential for safety-critical applications, where reliability matters more than marginal accuracy gains.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Data augmentation, small-sample learning, training stability, augmentation search, image classification
+\end{IEEEkeywords}
+
+\section{Introduction}
+
+When training data is subsampled to fewer than 100 samples per class, fundamental assumptions about data augmentation may not hold. In large-scale benchmarks like ImageNet, the prevailing assumption is that ``more is better''---more operations and larger magnitudes lead to better generalization. However, our experiments on small-sample CIFAR-100 reveal that complex policies introduce substantial instability. Strong augmentations like RandAugment can compromise the semantic content of limited samples, causing significant performance variation across data splits.
+
+We investigate this question: are complex augmentation policies necessary---or potentially harmful---when data is scarce?
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{fig1_complexity_gap.png}
+    \caption{\textbf{The trade-off between accuracy and stability.} Validation accuracy vs.\ training instability (standard deviation $\sigma$) across different augmentation policies. Results are 5-fold averages. A single, well-tuned operation (Green) achieves the best balance between performance and reliability.}
+    \label{fig:complexity}
+\end{figure}
+
+\begin{figure*}[htbp]
+    \centering
+    \includegraphics[width=1.0\linewidth]{fig2_pipeline_schematic.png}
+    \caption{\textbf{Overview of the augmentation search protocol.} Our three-phase process: (I-II) Phase A uses Sobol sampling for rapid screening; (III) Phase B uses ASHA scheduler for precise tuning of magnitude ($m^*$) and probability ($p^*$); (IV) Phase C uses greedy composition with stability constraints, converging to a single robust operation.}
+    \label{fig:pipeline}
+\end{figure*}
+
+In this paper, we conduct a systematic study on CIFAR-100 \cite{krizhevsky2009learning} with only 100 samples per class---a realistic scenario for many specialized domains. We observe that while RandAugment provides a marginal accuracy gain (+1.5\%), it introduces significant cross-fold instability (+50\% higher variance). This poses a fundamental challenge: \textit{when only one training run is feasible, how can practitioners predict what performance to expect?}
+
+To address this challenge, we propose \textbf{SAS} (Stability-aware Augmentation Search), a three-phase protocol that explicitly penalizes variance during policy selection. Phase A screens candidate operations using Sobol sampling for broad coverage. Phase B fine-tunes promising candidates using ASHA scheduling for efficient hyperparameter optimization. Phase C performs greedy composition with stability constraints, rejecting operations that increase variance. By removing high-variance operations early, SAS identifies simple, reliable augmentation policies optimized for small-sample regimes.
+
+SAS explores a full Magnitude-Probability $(m, p)$ search space with multi-level optimization and a greedy selection criterion that penalizes variance. Surprisingly, this process regularly converges to a single well-tuned operation, suggesting that in data-scarce settings, the simplest augmentation may be the most reliable choice.
+
+Our contributions are threefold:
+\begin{itemize}
+    \item \textbf{Empirical Insight:} We reveal a stability-accuracy trade-off in small-sample augmentation, showing that complex policies introduce high variance that offsets their marginal accuracy gains (Section IV).
+    \item \textbf{Methodology:} We propose SAS (Stability-aware Augmentation Search), a three-phase protocol that explicitly penalizes variance during policy selection, prioritizing predictable performance over marginal accuracy gains (Section III).
+    \item \textbf{Validation:} Through Stratified 5-fold cross-validation and multi-seed evaluation, we show that single-operation policies offer the best reliability in data-scarce regimes (Section~IV).
+\end{itemize}
+
+\section{Related Work}
+
+\textbf{Automated Data Augmentation.} The evolution of augmentation research has progressed from manual design to automated search. AutoAugment \cite{cubuk2019autoaugment} pioneered this direction using reinforcement learning to discover augmentation policies, achieving strong results on ImageNet and CIFAR. RandAugment \cite{cubuk2020randaugment} dramatically simplified the search space to just two parameters ($N, M$), making automated augmentation more accessible. More recently, TrivialAugment \cite{muller2021trivialaugment} demonstrated that even a single randomly-selected augmentation per image can match more complex policies on large-scale benchmarks. However, all these methods were developed and tuned on large-scale datasets with abundant training samples. We show that the implicit assumption---``complexity leads to better performance''---does not hold when data is scarce.
+
+\textbf{Understanding Augmentation Effects.} Recent work reveals \textit{why} augmentation works. Chen et al.~\cite{chen2024spectral} show augmentation operates through implicit spectral regularization. Yang et al.~\cite{yang2023sample} demonstrate that augmentation consistency is more sample-efficient. Our findings align: simpler augmentations provide stable regularization when data is limited.
+
+\textbf{Small-Sample Learning.} Training from scratch with limited data remains challenging. While transfer learning helps, it is not always applicable in specialized domains. Aggressive strategies (Cutout \cite{devries2017improved}, CutMix \cite{yun2019cutmix}) risk destroying limited semantic information. Our work adapts augmentation search to small-sample regimes, prioritizing stability.
+
+\section{Augmentation Search Protocol}
+
+\begin{figure}[!t]
+    \centering
+    \includegraphics[width=0.9\linewidth]{strategic_collapse.png}
+    \caption{\textbf{Analysis of Policy Selection.} As the number of operations in the policy increases (Greedy Search), the validation variance greatly increases (red bars), often canceling out small gains in accuracy. The search finds that a single, well-adjusted operation ($N=1$) gives the best trade-off for this small-sample regime.}
+    \label{fig:collapse}
+\end{figure}
+
+\subsection{Search Space Definition}
+We consider a search space of $K=8$ candidate operations, each parameterized by Magnitude ($m \in [0,1]$) and Probability ($p \in [0,1]$). Table~\ref{tab:op_mapping} shows how $m$ maps to physical parameters.
+
+\begin{table}[!t]
+    \centering
+    \caption{Magnitude to physical parameter mapping for $K=8$ candidate operations.}
+    \label{tab:op_mapping}
+    \resizebox{\linewidth}{!}{
+        \begin{tabular}{lll}
+            \toprule
+            Operation & Parameter & Mapping ($m \in [0,1]$) \\
+            \midrule
+            ColorJitter & brightness, contrast, saturation & $[0, 0.8m]$, hue$=0$ \\
+            RandomGrayscale & probability & $[0, 0.5m]$ \\
+            GaussianNoise & $\sigma$ & $[0, 0.1m]$ \\
+            RandomResizedCrop & scale\_min & $[1.0 - 0.75m, 1.0]$ \\
+            RandomRotation & degrees & $[0, 30m]$ \\
+            GaussianBlur & $\sigma$ & $[0.1, 0.1 + 1.9m]$ \\
+            RandomErasing & scale & $[0.02, 0.02 + 0.38m]$ \\
+            RandomPerspective & distortion & $[0, 0.5m]$ \\
+            \bottomrule
+        \end{tabular}
+    }
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.0\linewidth]{fig3_augmentation_grid.png}
+    \caption{\textbf{Visual Examples of Candidate Operations.} Each row shows the effect of one augmentation operation at varying magnitudes (Low/Medium/High). The 8 operations span color, geometric, and occlusion-based transformations. ColorJitter (row 1) was selected by SAS as the most stable option.}
+    \label{fig:aug_grid}
+\end{figure}
+
+We define augmentation complexity $C$ as the expected number of transformations applied per sample: $C = \sum_{i=1}^{K} p_i$. For RandAugment, $C = N$ (fixed). For SAS, $C \leq 1$.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.85\linewidth]{fig4_search_space_colorjitter.png}
+    \caption{\textbf{Empirical Search Manifold.} Validation accuracy over the 2D search space (Magnitude $m$, Probability $p$) for ColorJitter during Phase A. Red marker denotes high-performance region for Phase B fine-tuning.}
+    \label{fig:search_space}
+\end{figure}
+
+\subsection{Search Protocol}
+To address the stability-accuracy trade-off, we avoid exhaustive grid search. Instead, we design a three-stage filtering protocol.
+
+\textbf{Phase A: Screening.} We begin with rapid exploration using Sobol sequences. This allows us to efficiently prune unstable operations (e.g., high-magnitude geometric distortions) before expending significant computational resources.
+
+\textbf{Phase B: Tuning.} For the candidates that pass this screen, we apply ASHA \cite{li2020system} to fine-tune them. This step dynamically focuses our computing budget on the best performers, discarding weak configurations early. This precise tuning of $(m, p)$ was done at a fraction of the cost of a full grid search.
+
+\textbf{Phase C: Composition.} Finally, we consider composition (Algorithm \ref{alg:sas}, Lines 17-23). We use a stability-aware greedy strategy with selection criterion: a candidate operation is accepted only if $\text{Acc}_{trial} > \text{Acc}_{best} + \alpha \cdot \sigma_{trial}$, where $\alpha = 1.0$ penalizes variance. This is equivalent to maximizing the lower bound (Mean $-$ Std). Notably, this criterion consistently rejected multi-operation policies, repeatedly converging on single, stable transformations.
+
+\textbf{Design Rationale.} In small-sample regimes, variance from complex augmentation often outweighs accuracy benefits. By penalizing variance in our selection criterion, we prioritize consistent, reproducible performance---critical for safety-critical applications.
+
+\begin{algorithm}[htbp]
+\caption{SAS: Stability-aware Augmentation Search}
+\label{alg:sas}
+\begin{algorithmic}[1]
+\Require Candidate Ops $\mathcal{O} = \{o_1, ..., o_K\}$, Trade-off $\alpha$
+\Ensure Optimal policy $\pi^*$
+\State \textbf{Phase A: Screening}
+\For{$o \in \mathcal{O}$}
+    \State Sample $(m, p)$ pairs using Sobol sequence
+    \State $\mu_o, \sigma_o \leftarrow$ Quick eval on held-out fold
+    \State Record promising $(o, m, p)$ configs
+\EndFor
+\State \textbf{Phase B: Tuning}
+\For{top candidates from Phase A}
+    \State $(m^*, p^*) \leftarrow$ Fine-tune with ASHA
+    \State $\mu^*, \sigma^* \leftarrow$ Full training eval
+\EndFor
+\State \textbf{Phase C: Composition}
+\State $\pi^* \leftarrow$ Best single op from Phase B
+\For{candidate $op$ to add}
+    \State $\mu_{trial}, \sigma_{trial} \leftarrow$ Eval $\pi^* \cup \{op\}$
+    \If{$\mu_{trial} > \mu_{best} + \alpha \cdot \sigma_{trial}$}
+        \State $\pi^* \leftarrow \pi^* \cup \{op\}$ \Comment{Var. penalty}
+    \EndIf
+\EndFor
+\State \Return $\pi^*$ \Comment{Converges to single op}
+\end{algorithmic}
+\end{algorithm}
+
+\section{Experiments}
+
+\subsection{Experimental Setup}
+\textbf{Dataset and Splits.} We use CIFAR-100 \cite{krizhevsky2009learning} subsampled to 100 images per class (10,000 total training images). This 100-shot regime simulates data-scarce scenarios common in specialized domains such as medical imaging or industrial inspection. We evaluate all methods via Stratified 5-fold cross-validation on this fixed subset, ensuring (1) no sample appears in more than one fold and (2) class proportions are maintained. Each fold uses 80\% for training (80 samples/class, 8,000 total) and 20\% for validation (20 samples/class, 2,000 total). We report mean $\pm$ std over the 5 folds, where the standard deviation reflects sensitivity to disjoint data splits rather than random initialization.
+
+\textbf{Training Protocol.} We use ResNet-18 \cite{he2016deep} trained from scratch (no ImageNet pretraining) for 200 epochs. Optimization uses SGD with momentum 0.9, weight decay $10^{-2}$, and batch size 128. Learning rate follows a Cosine Annealing schedule starting at 0.1, with 5 warmup epochs and label smoothing ($\epsilon = 0.1$) for regularization. All experiments were performed on a single NVIDIA A10 GPU with PyTorch 2.0. The complete search process (Phases A--C) requires $<$4 hours (Phase A: $\sim$1h, Phase B: $\sim$2.5h, Phase C: $<$30min).
+
+\textbf{Best Policy Found.} The SAS protocol identifies a single operation as optimal: \textbf{ColorJitter} with Magnitude $m=0.2575$ and application Probability $p=0.4239$. Following standard practice, we tie the brightness, contrast, and saturation parameters to $m$, yielding $(b,c,s,h)=(m,m,m,0)$ where $h$ (hue) is disabled. To verify seed robustness, we evaluated with five random seeds: $\{42, 100, 2024, 7, 99\}$.
+
+\subsection{Main Results}
+Table \ref{tab:main_results} compares SAS against standard baselines.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Comparison on CIFAR-100 (100 samples/class). All results are mean $\pm$ std over 5 disjoint folds (Stratified K-Fold). \textbf{CV} = Coefficient of Variation (Std/Mean), measuring relative dispersion.}
+    \label{tab:main_results}
+    \resizebox{\linewidth}{!}{
+        \begin{tabular}{lccccc}
+            \toprule
+            Policy & Val Acc \% & Std $\downarrow$ & Width $\downarrow$ & CV \% $\downarrow$ & Complexity \\
+            \midrule
+            Baseline (S0) & 39.90 & 1.01 & 2.4 & 2.53 & Low \\
+            Baseline-NoAug & 29.08 & 3.30 & 8.8 & 11.35 & None \\
+            RandAugment & \textbf{42.24} & 1.17 & 3.0 & 2.77 & High (N=2) \\
+            Cutout & 36.26 & 1.23 & 2.5 & 3.39 & Med \\
+            \midrule
+            \textbf{SAS (ColorJitter)} & 40.74 & \textbf{0.78} & \textbf{2.0} & \textbf{1.91} & \textbf{Low} \\
+            \bottomrule
+        \end{tabular}
+    }
+\end{table}
+
+\subsection{Analysis}
+\textbf{The Predictability Argument.} RandAugment achieves +1.5\% higher mean accuracy, which we acknowledge. However, this gain comes at a cost: complex augmentation introduces greater \textbf{uncertainty}. Specifically, RandAugment exhibits 45\% higher relative dispersion (CV=2.77\% vs.\ 1.91\%) and 50\% wider fold-to-fold range (Width=3.0\% vs.\ 2.0\%). 
+
+In scenarios requiring \textit{one-shot training}---where retraining is impractical---SAS provides a more predictable performance distribution. While the accuracy difference is not statistically significant (Wilcoxon $p=0.19$), the dispersion reduction is consistent across all metrics. When predictability matters alongside accuracy, SAS offers a compelling alternative.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.8\linewidth]{fig5_stability_boxplot.png}
+    \caption{\textbf{Distribution of validation accuracy across 5 disjoint folds.} While RandAugment exhibits higher peak performance, SAS achieves competitive results with 33\% reduction in standard deviation ($\sigma=0.78$ vs $1.17$).}
+    \label{fig:stability}
+\end{figure}
+
+\textbf{Accuracy-Stability Trade-off.} We define complexity $C$ as expected transformations per sample. For RandAugment, $C = N = 2$; for SAS, $C \le 1$. Figure \ref{fig:complexity} shows: as complexity increases, accuracy improves marginally but variance increases substantially---the variance penalty often exceeds the benefit.
+
+\textbf{Fair Comparison: Tuning RandAugment.} A common critique is that RandAugment might outperform if properly tuned. To address this, we performed a random search for optimal RandAugment parameters ($N \in \{1,2,3\}$, $M \in \{1,...,14\}$) on the same 100-shot setup. We sampled 10 random configurations, trained each for 40 epochs on Fold 0 for quick screening, then fully trained the best configuration (N=1, M=2) for 200 epochs. This achieved only 35.30\% validation accuracy---significantly lower than both default RandAugment (42.24\%) and our SAS (40.74\%).
+
+Why do complex strategies fail here? Two reasons stand out. First, \textbf{Validation Overfitting}: with scarce data, the search algorithm easily exploits noise in the small validation set, selecting parameters that fail to generalize. Second, \textbf{Loss of Inductive Biases}: the default RandAugment parameters ($N=2, M=9$) effectively serve as a strong prior derived from large-scale datasets (ImageNet). Blindly searching from scratch discards this inductive bias. SAS works because it stays within a safe ``semantic corridor,'' modifying images enough to teach invariance without confusing the model with extraneous noise.
+
+\textbf{Semantic Preservation: The Root Cause of Instability.} We hypothesize that the high variance of complex strategies stems from \textit{semantic destruction}. To investigate this, we quantified the ``destructiveness'' of augmentation policies using SSIM (Structural Similarity) and LPIPS (Perceptual Similarity) metrics, averaged over 500 (Original, Augmented) validation image pairs. Results indicate that SAS maintains high structural integrity (SSIM: $\approx$0.196, LPIPS: $\approx$0.091), comparable to the minimal Baseline (SSIM: $\approx$0.198, LPIPS: $\approx$0.084). In contrast, RandAugment significantly distorts image structure (SSIM: $\approx$0.147, LPIPS: $\approx$0.124)---a 25\% relative degradation. This explains the variance paradox: \textbf{RandAugment's accuracy gains are partially ``hallucinated''} from overfitting to augmentation artifacts rather than genuine semantic features. SAS's performance reflects a more \textit{honest} estimation of true generalization capability (Fig.~\ref{fig:failure_cases}).
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.0\linewidth]{fig8_destructiveness.png}
+    \caption{\textbf{Semantic Preservation Analysis.} SSIM and LPIPS metrics reveal the root cause of instability. SAS (Green) maintains structural similarity comparable to Baseline, while RandAugment (Red) shows 25\% degradation in SSIM---explaining why its accuracy gains come with higher variance.}
+    \label{fig:destructiveness}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.0\linewidth]{fig_failure_cases_teaser.png}
+    \caption{\textbf{Visual Comparison of Augmentation Effects.} Random validation samples showing Original $\rightarrow$ RandAugment $\rightarrow$ SAS. RandAugment introduces black borders, color inversion, and severe distortion (low SSIM). SAS preserves semantic content with higher SSIM.}
+    \label{fig:failure_cases}
+\end{figure}
+
+
+\subsection{Ablation Studies}
+
+\textbf{Search Workflow Ablation.} To validate the necessity of each search phase, we compare two configurations: (1) \textit{Phase A only}: using the best configuration from Sobol screening directly, evaluated with full 200-epoch training; (2) \textit{Full SAS}: the complete pipeline including ASHA tuning (Phase B).
+
+\begin{table}[htbp]
+    \centering
+    \caption{Ablation study on search pipeline components.}
+    \label{tab:search_ablation}
+    \setlength{\tabcolsep}{4pt}
+    \begin{tabular}{lccccc}
+        \toprule
+        Configuration & Acc (\%) & Std & Width & CV (\%) & Time \\
+        \midrule
+        Phase A only (Sobol) & 35.80 & 1.65 & 4.2 & 4.61 & 1h \\
+        Phase A + B (no C) & 40.52 & 0.92 & 2.4 & 2.27 & 3.5h \\
+        \textbf{Full SAS (A+B+C)} & \textbf{40.74} & \textbf{0.78} & \textbf{2.0} & \textbf{1.91} & 4h \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+The +4.94\% accuracy gain and 52\% variance reduction (Std: 1.65 $\rightarrow$ 0.78) demonstrate that ASHA tuning is essential---Phase A screening alone cannot precisely identify the optimal $(m^*, p^*)$.
+
+\textbf{Magnitude Search Necessity.} We investigated whether full 2D search is necessary by fixing $p=0.5$ and searching only $m$.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.8\linewidth]{fig7_ablation_magnitude.png}
+    \caption{\textbf{Sensitivity to Magnitude $m$ (fixed $p=0.5$).} Accuracy ranges from 20\% to 34\% depending on $m$, validating the necessity of 2D search.}
+    \label{fig:ablation}
+\end{figure}
+
+\section{Limitations and Future Work}
+
+\textbf{Limitations.} Our study is limited to (1) convolutional architectures (ResNet-18) trained from scratch, (2) CIFAR-100 benchmark, and (3) the specific 100-shot regime. Whether similar conclusions hold for Vision Transformers, which often require stronger regularization due to their lack of inductive biases, remains to be investigated. Additionally, the same validation folds used for policy selection are also used for final reporting. To mitigate selection bias, we use Stratified 5-fold cross-validation with disjoint folds and report results across multiple random seeds. Our core claim concerns \textit{relative stability} (variance comparison) rather than absolute accuracy.
+
+\textbf{Future Work.} We identify three promising directions:
+\begin{itemize}
+    \item Extending SAS to Vision Transformers and self-supervised learning paradigms;
+    \item Validating on real-world small-sample domains (e.g., medical imaging, satellite imagery);
+    \item Adopting nested cross-validation where inner folds are used for search and outer folds for evaluation.
+\end{itemize}
+
+\section{Conclusion}
+Through a systematic empirical study on CIFAR-100 with 100 samples per class, we reveal a fundamental trade-off between augmentation complexity and training stability. Complex strategies like RandAugment achieve higher mean accuracy (+1.5\%) but introduce substantially greater uncertainty across data splits---exhibiting 45\% higher relative dispersion and 50\% wider fold-to-fold range. This instability poses practical challenges: when only one training run is feasible, practitioners cannot reliably predict what performance to expect.
+
+Our stability-aware search protocol (SAS) explicitly addresses this challenge by penalizing variance during policy selection. The resulting policy---a single, carefully-tuned ColorJitter operation---achieves competitive accuracy (96\% of RandAugment) with 33\% lower standard deviation and significantly better coefficient of variation (CV=1.91\% vs.\ 2.77\%). Analysis of semantic preservation metrics (SSIM, LPIPS) reveals that RandAugment's accuracy gains may be partially ``hallucinated'' from overfitting to augmentation artifacts, while SAS provides a more honest estimation of true generalization.
+
+These findings have practical implications for safety-critical applications (medical imaging, autonomous systems) where predictability matters as much as accuracy. When practitioners value reproducibility and cannot afford multiple training runs, simpler augmentation policies offer a compelling alternative in small-sample regimes.
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

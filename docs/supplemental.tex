@@ -49,14 +49,14 @@ Code will be made publicly available upon acceptance. Full training hyperparamet
 \subsection{Shot Scaling Under Repeated Subsampling Trials}
 \label{sec:shot_sweep}
 
-We provide an additional shot scaling study to characterize how augmentation behaviors change as data availability varies. This study uses repeated class-wise subsampling trials (subsets may overlap across trials), which is different from the disjoint StratifiedKFold protocol used in the main experiments. Therefore, we use this study to analyze scaling trends and failure modes rather than to replace the main results.
+We provide an additional shot scaling study to characterize how augmentation behaviors change as data availability varies. \textbf{Important:} This study uses repeated class-wise subsampling trials (subsets may overlap across trials), which differs from the disjoint StratifiedKFold protocol in the main experiments. We use this protocol specifically to study scaling trends and failure modes---\textit{not} to replace the main evaluation. Absolute accuracy values should not be directly compared across protocols.
 
 Figure~\ref{fig:shot_sweep} shows performance across 20, 50, 100, and 200 samples per class. Two patterns emerge. First, in very low-shot regimes (e.g., 20-shot), strong multi-operation augmentation can make optimization difficult and lead to uniformly low accuracy, indicating an optimization-limited collapse rather than reliable generalization. Second, as the number of samples per class increases, all methods improve and the performance gaps narrow. Overall, this study highlights a regime boundary where augmentation complexity becomes actively harmful; it complements the main experiments by illustrating scaling trends and failure modes under a different evaluation protocol.
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=1.0\linewidth]{fig_shot_sweep_combined.png}
-    \caption{\textbf{Shot scaling study.} Different from the main experiments (disjoint StratifiedKFold), this sweep uses repeated subsampling trials and is intended to study scaling trends and failure modes, not to replace the main protocol. Note that a smaller std may coincide with consistently low accuracy in extreme low-shot settings, reflecting optimization collapse rather than robustness.}
+    \caption{\textbf{Shot scaling study (different protocol).} This sweep uses repeated subsampling trials, distinct from the disjoint StratifiedKFold in the main paper. Purpose: analyze scaling trends and failure modes. \textbf{Do not directly compare absolute values to main results.} Note: smaller std with low accuracy in extreme low-shot settings may indicate optimization collapse rather than stability.}
     \label{fig:shot_sweep}
 \end{figure}
 
