@@ -1,7 +1,9 @@
-\documentclass[conference]{IEEEtran}
+\documentclass[conference,letterpaper]{IEEEtran}
 \IEEEoverridecommandlockouts
 % Template version as of 6/27/2024
 
+\usepackage[T1]{fontenc}
+\usepackage{newtxtext}  % Modern Times text font
 \usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{graphicx}
@@ -11,7 +13,16 @@
 \usepackage{algorithm}
 \usepackage{algpseudocode}
 \usepackage{xurl}
-\usepackage[pdfauthor={},pdftitle={},pdfsubject={},pdfkeywords={}]{hyperref}
+\usepackage[
+    pdfauthor={Fuyao Qin},
+    pdftitle={Rethinking Data Augmentation for Small-Sample Learning},
+    pdfsubject={},
+    pdfkeywords={},
+    pdfpagelayout=SinglePage,
+    pdfstartpage=1
+]{hyperref}
+
+\sloppy  % Suppress underfull hbox warnings
 
 \begin{document}
 
